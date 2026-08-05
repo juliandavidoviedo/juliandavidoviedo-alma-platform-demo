@@ -9,9 +9,14 @@ import {
   LineChart,
   Users,
   Smartphone,
+  Sparkles,
+  Quote,
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { DancerCouple } from '../components/art/DancerCouple';
+import { DancerSpin } from '../components/art/DancerSpin';
 
 const PAIN_POINTS = [
   {
@@ -43,7 +48,7 @@ const BENEFITS = [
     person: 'Iván, director ejecutivo',
     icon: LineChart,
     points: [
-      'Caja del mes, ingreso diferido y ocupación por clase en un solo lugar',
+      'Caja del mes, ingreso diferido y ocupación por salón en un solo lugar',
       'Alumnos en riesgo de fuga, identificados antes de que se vayan',
       'Decisiones con datos, no con la memoria de recepción',
     ],
@@ -55,7 +60,7 @@ const BENEFITS = [
     icon: Users,
     points: [
       'Vender un paquete y registrar asistencia en segundos',
-      'Ver quién está en la sala ahora mismo',
+      'Ver quién confirmó, quién llegó y quién canceló, en tiempo real',
       'Nunca bloquear a un alumno en la puerta, aunque su saldo esté en cero',
     ],
   },
@@ -66,9 +71,27 @@ const BENEFITS = [
     icon: Smartphone,
     points: [
       'Saber cuántas clases le quedan sin llamar a nadie',
-      'Registrar su asistencia en la puerta en cinco segundos',
-      'Ver sus puntos, su racha y su próxima clase desde el celular',
+      'Reservar más de una clase el mismo día y cancelar hasta 30 minutos antes',
+      'Renovar su plan avisando a recepción o pagando por transferencia',
     ],
+  },
+];
+
+const TESTIMONIALS = [
+  {
+    name: 'Julián',
+    role: 'Alumno · nivel intermedio',
+    quote: 'Ya no le pregunto a nadie cuántas clases me quedan. Lo veo en el celular antes de salir de casa.',
+  },
+  {
+    name: 'Camila',
+    role: 'Alumna · Salsa y Tango',
+    quote: 'Reservo mi salsa y mi tango el mismo día sin llamar a nadie. Si algo cambia, cancelo yo misma.',
+  },
+  {
+    name: 'Laura',
+    role: 'Profesora',
+    quote: 'Sé quién confirmó antes de que empiece la clase. Eso cambia cómo preparo cada sesión.',
   },
 ];
 
@@ -76,34 +99,61 @@ export function Landing() {
   return (
     <div className="pb-16">
       {/* Hero */}
-      <section className="mx-auto flex max-w-4xl flex-col items-center px-4 py-20 text-center sm:px-6 sm:py-28">
-        <span className="rounded-full border border-alma-border bg-alma-surface px-4 py-1.5 text-xs font-semibold tracking-[0.2em] text-alma-text-muted uppercase">
-          Alma Platform
-        </span>
+      <section className="relative overflow-hidden">
+        <DancerCouple className="pointer-events-none absolute top-1/2 left-1/2 h-[720px] w-[580px] -translate-x-1/2 -translate-y-1/2 text-alma-text opacity-[0.05]" />
 
-        <h1 className="mt-8 font-display text-4xl leading-tight text-alma-text sm:text-6xl">
-          El sistema operativo para{' '}
-          <span className="text-alma-gold">academias de baile</span>
-        </h1>
+        <div className="relative mx-auto flex max-w-4xl flex-col items-center px-4 py-20 text-center sm:px-6 sm:py-28">
+          <span className="rounded-full border border-alma-border bg-alma-surface px-4 py-1.5 text-xs font-semibold tracking-[0.2em] text-alma-text-muted uppercase">
+            Alma Platform
+          </span>
 
-        <p className="mt-6 max-w-2xl text-lg text-alma-text-secondary sm:text-xl">
-          Construido para <span className="text-alma-text">Alma de Tango</span>: que un
-          alumno sepa cuántas clases le quedan sin preguntar, y que la dirección deje de
-          reconstruir el mes a fin de mes.
-        </p>
+          <h1 className="mt-8 font-display text-4xl leading-tight text-alma-text sm:text-6xl">
+            El sistema operativo para{' '}
+            <span className="text-alma-gold">academias de baile</span>
+          </h1>
 
-        <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row">
-          <a href="#explorar">
-            <Button variant="primary" className="px-8">
-              Explorar demostración
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          </a>
+          <p className="mt-6 max-w-2xl text-lg text-alma-text-secondary sm:text-xl">
+            Construido para <span className="text-alma-text">Alma de Tango</span>: que un
+            alumno sepa cuántas clases le quedan sin preguntar, y que la dirección deje de
+            reconstruir el mes a fin de mes.
+          </p>
+
+          <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row">
+            <a href="#explorar">
+              <Button variant="primary" className="px-8">
+                Explorar demostración
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </a>
+            <Link to="/clases">
+              <Button variant="secondary" className="px-8">
+                Ver clases y horarios
+              </Button>
+            </Link>
+          </div>
         </div>
       </section>
 
+      {/* New offerings strip */}
+      <section className="mx-auto max-w-4xl px-4 sm:px-6">
+        <Link to="/clases">
+          <Card elevated className="flex flex-wrap items-center justify-between gap-3 border-alma-gold/30">
+            <div className="flex items-center gap-3">
+              <Sparkles className="h-5 w-5 text-alma-gold" aria-hidden="true" />
+              <p className="text-sm text-alma-text">
+                <span className="font-medium text-alma-gold">Nuevo en el portafolio:</span> Salsa, Tap y Tango
+                Escenario los domingos de 10 am a 1 pm.
+              </p>
+            </div>
+            <span className="flex items-center gap-1 text-sm font-medium text-alma-gold">
+              Ver horarios <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </span>
+          </Card>
+        </Link>
+      </section>
+
       {/* Pain points */}
-      <section className="mx-auto max-w-6xl px-4 sm:px-6">
+      <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
         <h2 className="text-center font-display text-2xl text-alma-text sm:text-3xl">
           El problema hoy
         </h2>
@@ -173,8 +223,62 @@ export function Landing() {
         </div>
       </section>
 
+      {/* Testimonials */}
+      <section className="relative overflow-hidden py-20">
+        <DancerSpin className="pointer-events-none absolute top-1/2 right-[-60px] h-72 w-72 -translate-y-1/2 text-alma-text opacity-[0.04]" />
+
+        <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
+          <h2 className="text-center font-display text-2xl text-alma-text sm:text-3xl">
+            Lo que dice quien ya lo usa (en la demo)
+          </h2>
+
+          <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-3">
+            {TESTIMONIALS.map((t) => (
+              <Card key={t.name} className="flex flex-col gap-3">
+                <Quote className="h-5 w-5 text-alma-gold/60" aria-hidden="true" />
+                <p className="text-sm text-alma-text-secondary italic">“{t.quote}”</p>
+                <div className="mt-auto flex items-center gap-2 pt-2">
+                  <span className="text-sm font-medium text-alma-text">{t.name}</span>
+                  <Badge tone="neutral">{t.role}</Badge>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Blog / events cross-links */}
+      <section className="mx-auto max-w-6xl px-4 sm:px-6">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <Link to="/blog">
+            <Card elevated className="h-full">
+              <span className="text-xs font-semibold tracking-[0.2em] text-alma-gold uppercase">Blog</span>
+              <h3 className="mt-2 font-display text-xl text-alma-text">Historias de la academia</h3>
+              <p className="mt-2 text-sm text-alma-text-secondary">
+                Notas sobre técnica, tango de salón vs. escenario, y por qué nunca es tarde para empezar.
+              </p>
+              <span className="mt-4 flex items-center gap-1 text-sm font-medium text-alma-gold">
+                Leer el blog <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+            </Card>
+          </Link>
+          <Link to="/eventos">
+            <Card elevated className="h-full">
+              <span className="text-xs font-semibold tracking-[0.2em] text-alma-gold uppercase">Eventos</span>
+              <h3 className="mt-2 font-display text-xl text-alma-text">Milongas, talleres y convocatorias</h3>
+              <p className="mt-2 text-sm text-alma-text-secondary">
+                Puestas en escena, la milonga mensual, y convocatorias abiertas para el grupo de exhibición.
+              </p>
+              <span className="mt-4 flex items-center gap-1 text-sm font-medium text-alma-gold">
+                Ver agenda <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+            </Card>
+          </Link>
+        </div>
+      </section>
+
       {/* Pilot CTA */}
-      <section className="mx-auto max-w-3xl px-4 sm:px-6">
+      <section className="mx-auto max-w-3xl px-4 py-20 sm:px-6">
         <Card elevated className="flex flex-col items-center gap-4 text-center">
           <h2 className="font-display text-2xl text-alma-text">
             ¿Validamos un piloto en Alma de Tango?
