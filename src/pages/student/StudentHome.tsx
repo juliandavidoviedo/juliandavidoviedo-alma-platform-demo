@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Flame, QrCode } from 'lucide-react';
+import { CalendarCheck, Flame, QrCode, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api, JULIAN } from '../../lib/api';
 import type { StudentSummary } from '../../lib/api';
@@ -7,20 +7,37 @@ import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
+import { ActionFeedback } from '../../components/ui/ActionFeedback';
 import { formatDateLong, formatDateWithWeekday } from '../../lib/format';
 
 export function StudentHome() {
   const [data, setData] = useState<StudentSummary | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  function load() {
+    api.student.getSummary(JULIAN.studentId).then(setData);
+  }
 
   useEffect(() => {
-    let active = true;
-    api.student.getSummary(JULIAN.studentId).then((r) => {
-      if (active) setData(r);
-    });
-    return () => {
-      active = false;
-    };
+    load();
   }, []);
+
+  async function handleConfirm() {
+    setConfirming(true);
+    const result = await api.checkIn.confirm(JULIAN.studentId);
+    setFeedback(result.message);
+    load();
+    setConfirming(false);
+  }
+
+  async function handleCancel() {
+    setConfirming(true);
+    const result = await api.checkIn.cancelConfirmation(JULIAN.studentId);
+    setFeedback(result.message);
+    load();
+    setConfirming(false);
+  }
 
   if (!data) {
     return (
@@ -31,6 +48,7 @@ export function StudentHome() {
   }
 
   const expirySoon = (data.package?.daysUntilExpiry ?? 99) <= 7;
+  const todayStatus = data.todayClass?.registrationStatus ?? null;
 
   return (
     <div className="mx-auto max-w-md px-4 py-8 sm:px-6">
@@ -69,6 +87,43 @@ export function StudentHome() {
           </Button>
         </Link>
       </Card>
+
+      {/* Today's class — confirm / cancel lifecycle */}
+      {data.todayClass && (
+        <Card className="mt-5">
+          <div className="flex items-center gap-2">
+            <CalendarCheck className="h-4 w-4 text-alma-gold" aria-hidden="true" />
+            <p className="text-sm font-medium text-alma-text">Clase de hoy</p>
+          </div>
+          <p className="mt-1 text-sm text-alma-text-secondary">
+            {data.todayClass.danceClass.name} · {data.todayClass.danceClass.startTime}–
+            {data.todayClass.danceClass.endTime}
+          </p>
+          <p className="text-xs text-alma-text-muted">
+            {data.todayClass.danceClass.roomName} (piso {data.todayClass.danceClass.floor}) · Profesora{' '}
+            {data.todayClass.danceClass.teacher}
+          </p>
+
+          {todayStatus === 'CHECKED_IN' ? (
+            <p className="mt-3 text-xs text-alma-text-muted">Ya marcaste tu asistencia hoy.</p>
+          ) : todayStatus === 'CONFIRMED' ? (
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <Badge tone="gold">Confirmado</Badge>
+              <Button variant="ghost" onClick={handleCancel} disabled={confirming}>
+                <X className="h-4 w-4" aria-hidden="true" />
+                Cancelar
+              </Button>
+            </div>
+          ) : (
+            <Button variant="secondary" className="mt-3 w-full" onClick={handleConfirm} disabled={confirming}>
+              <CalendarCheck className="h-4 w-4" aria-hidden="true" />
+              {confirming ? 'Confirmando…' : 'Confirmar asistencia (simulación)'}
+            </Button>
+          )}
+
+          {feedback && <div className="mt-3"><ActionFeedback message={feedback} /></div>}
+        </Card>
+      )}
 
       {/* Points */}
       <Card className="mt-5">
@@ -110,7 +165,9 @@ export function StudentHome() {
                 <p className="text-xs text-alma-text-muted">
                   {formatDateWithWeekday(cls.date)} · {cls.startTime}–{cls.endTime}
                 </p>
-                <p className="text-xs text-alma-text-muted">Profesor{cls.teacher === 'Laura' ? 'a' : ''} {cls.teacher}</p>
+                <p className="text-xs text-alma-text-muted">
+                  {cls.roomName} · Profesor{cls.teacher === 'Laura' ? 'a' : ''} {cls.teacher}
+                </p>
               </div>
               <span className="text-xs text-alma-text-muted">
                 {cls.attendeeCount}/{cls.capacity}
