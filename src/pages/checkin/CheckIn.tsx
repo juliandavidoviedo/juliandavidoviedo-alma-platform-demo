@@ -1,33 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PartyPopper, ScanLine, Sparkles } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { CheckInScenario, CheckInSimulateResult, RotatingCode } from '../../lib/api';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { ActionFeedback } from '../../components/ui/ActionFeedback';
+import { QrGlyph } from '../../components/QrGlyph';
 
 const SCENARIOS: { value: CheckInScenario; label: string }[] = [
   { value: 'SUCCESS', label: 'Éxito' },
   { value: 'ALREADY_CHECKED_IN', label: 'Ya registrado' },
   { value: 'NO_PACKAGE', label: 'Sin paquete' },
 ];
-
-/** Deterministic decorative grid standing in for a QR code — never a scannable, real one. */
-function QrGlyph({ seed }: { seed: string }) {
-  const cells = useMemo(() => {
-    let hash = 0;
-    for (const char of seed) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-    return Array.from({ length: 64 }, (_, i) => ((hash >> (i % 24)) & 1) === 1);
-  }, [seed]);
-
-  return (
-    <div className="grid grid-cols-8 gap-1 rounded-xl bg-alma-text p-3">
-      {cells.map((filled, i) => (
-        <div key={i} className={['aspect-square rounded-[2px]', filled ? 'bg-alma-bg' : 'bg-alma-text'].join(' ')} />
-      ))}
-    </div>
-  );
-}
 
 export function CheckIn() {
   const [rotating, setRotating] = useState<RotatingCode | null>(null);
