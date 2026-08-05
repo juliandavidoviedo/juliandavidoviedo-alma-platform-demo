@@ -1,10 +1,13 @@
 import type {
   AttendanceRecord,
+  ClassRegistration,
   DanceClassInfo,
   DirectorDashboard,
-  LiveRoomEntry,
+  EngagementInfo,
   PackageInfo,
+  PackagePurchase,
   PointsInfo,
+  Room,
   StudentLevel,
   DanceRole,
 } from './types';
@@ -18,6 +21,16 @@ import type {
  */
 export const DEMO_TODAY = '2026-08-05';
 
+/**
+ * The academy: two floors, four rooms. Every class belongs to exactly one.
+ */
+export const ROOMS: Room[] = [
+  { roomId: 'SALA-1', name: 'Salón Principal', floor: 1, capacity: 20 },
+  { roomId: 'SALA-2', name: 'Salón Milonga', floor: 1, capacity: 24 },
+  { roomId: 'SALA-3', name: 'Estudio Norte', floor: 2, capacity: 16 },
+  { roomId: 'SALA-4', name: 'Estudio Sur', floor: 2, capacity: 12 },
+];
+
 export interface DemoStudentRecord {
   studentId: string;
   firstName: string;
@@ -25,12 +38,16 @@ export interface DemoStudentRecord {
   danceRole: DanceRole;
   status: 'ACTIVO' | 'INACTIVO';
   package: PackageInfo | null;
+  packageHistory: PackagePurchase[];
   points: PointsInfo;
   streak: { consecutiveWeeks: number };
+  engagement: EngagementInfo;
   upcomingClasses: DanceClassInfo[];
   attendanceHistory: AttendanceRecord[];
 }
 
+/** Today's live class — the one Check-in, Reception's roster and the
+ * Student "clase de hoy" card all share. */
 export const CURRENT_CLASS: DanceClassInfo = {
   classId: 'CL-20260805-1900-TG1',
   name: 'Tango salón intermedio',
@@ -41,6 +58,9 @@ export const CURRENT_CLASS: DanceClassInfo = {
   level: 'INTERMEDIO',
   capacity: 20,
   attendeeCount: 2,
+  roomId: 'SALA-1',
+  roomName: 'Salón Principal',
+  floor: 1,
 };
 
 /**
@@ -61,6 +81,28 @@ export const JULIAN: DemoStudentRecord = {
     expiresOn: '2026-09-14',
     daysUntilExpiry: 40,
   },
+  packageHistory: [
+    {
+      packageId: 'PQ-0187',
+      name: 'Paquete 8 clases',
+      purchaseDate: '2026-07-15',
+      expiresOn: '2026-09-14',
+      paymentMethod: 'TRANSFERENCIA',
+      amount: 280_000,
+      classesIncluded: 8,
+      classesRemaining: 5,
+    },
+    {
+      packageId: 'PQ-0102',
+      name: 'Paquete 4 clases',
+      purchaseDate: '2026-05-20',
+      expiresOn: '2026-07-04',
+      paymentMethod: 'EFECTIVO',
+      amount: 150_000,
+      classesIncluded: 4,
+      classesRemaining: 0,
+    },
+  ],
   points: {
     balance: 340,
     tier: 'PLATA',
@@ -70,6 +112,12 @@ export const JULIAN: DemoStudentRecord = {
     progress: 68,
   },
   streak: { consecutiveWeeks: 3 },
+  engagement: {
+    status: 'CRECIENDO',
+    attendancesLast30Days: 6,
+    daysSinceLastAttendance: 8,
+    noShowCount: 0,
+  },
   upcomingClasses: [
     {
       classId: 'CL-20260806-1900-TG1',
@@ -81,6 +129,9 @@ export const JULIAN: DemoStudentRecord = {
       level: 'INTERMEDIO',
       capacity: 20,
       attendeeCount: 12,
+      roomId: 'SALA-1',
+      roomName: 'Salón Principal',
+      floor: 1,
     },
     {
       classId: 'CL-20260808-1830-TG2',
@@ -92,6 +143,9 @@ export const JULIAN: DemoStudentRecord = {
       level: 'INTERMEDIO',
       capacity: 16,
       attendeeCount: 9,
+      roomId: 'SALA-3',
+      roomName: 'Estudio Norte',
+      floor: 2,
     },
     {
       classId: 'CL-20260811-1900-TG1',
@@ -103,6 +157,9 @@ export const JULIAN: DemoStudentRecord = {
       level: 'INTERMEDIO',
       capacity: 20,
       attendeeCount: 7,
+      roomId: 'SALA-1',
+      roomName: 'Salón Principal',
+      floor: 1,
     },
   ],
   attendanceHistory: [
@@ -149,7 +206,7 @@ export const JULIAN: DemoStudentRecord = {
   ],
 };
 
-/** Reception search / live-room supporting cast — fictional, first names only. */
+/** Reception search / roster supporting cast — fictional, first names only. */
 export const CAMILA: DemoStudentRecord = {
   studentId: 'ST-CAMILA',
   firstName: 'Camila',
@@ -164,6 +221,18 @@ export const CAMILA: DemoStudentRecord = {
     expiresOn: '2026-08-28',
     daysUntilExpiry: 23,
   },
+  packageHistory: [
+    {
+      packageId: 'PQ-0233',
+      name: 'Paquete 4 clases',
+      purchaseDate: '2026-07-22',
+      expiresOn: '2026-08-28',
+      paymentMethod: 'TARJETA',
+      amount: 150_000,
+      classesIncluded: 4,
+      classesRemaining: 3,
+    },
+  ],
   points: {
     balance: 120,
     tier: 'BRONCE',
@@ -173,6 +242,12 @@ export const CAMILA: DemoStudentRecord = {
     progress: 60,
   },
   streak: { consecutiveWeeks: 1 },
+  engagement: {
+    status: 'ESTABLE',
+    attendancesLast30Days: 3,
+    daysSinceLastAttendance: 0,
+    noShowCount: 1,
+  },
   upcomingClasses: [],
   attendanceHistory: [],
 };
@@ -184,6 +259,18 @@ export const ANDRES: DemoStudentRecord = {
   danceRole: 'AMBOS',
   status: 'ACTIVO',
   package: null,
+  packageHistory: [
+    {
+      packageId: 'PQ-0055',
+      name: 'Clase suelta',
+      purchaseDate: '2026-06-10',
+      expiresOn: '2026-07-10',
+      paymentMethod: 'EFECTIVO',
+      amount: 40_000,
+      classesIncluded: 1,
+      classesRemaining: 0,
+    },
+  ],
   points: {
     balance: 30,
     tier: 'BRONCE',
@@ -193,6 +280,12 @@ export const ANDRES: DemoStudentRecord = {
     progress: 15,
   },
   streak: { consecutiveWeeks: 0 },
+  engagement: {
+    status: 'EN_RIESGO',
+    attendancesLast30Days: 0,
+    daysSinceLastAttendance: 24,
+    noShowCount: 2,
+  },
   upcomingClasses: [],
   attendanceHistory: [],
 };
@@ -203,22 +296,56 @@ export const INITIAL_STUDENTS: Record<string, DemoStudentRecord> = {
   [ANDRES.studentId]: ANDRES,
 };
 
-export const INITIAL_LIVE_ROOM: LiveRoomEntry[] = [
+/**
+ * Today's roster for CURRENT_CLASS — the richer replacement for a flat
+ * "who's here" list. Valentina and Mariana are the same two names used in
+ * the director's at-risk list: Valentina confirmed and didn't show, Mariana
+ * cancelled in time. Reinforces one story instead of introducing new cast.
+ */
+export const INITIAL_ROSTER: ClassRegistration[] = [
   {
-    attendanceId: 'AS-001204',
+    registrationId: 'RG-000401',
     studentId: CAMILA.studentId,
-    name: 'Camila',
-    time: '19:02',
+    studentName: 'Camila',
+    status: 'CHECKED_IN',
+    confirmedAt: '18:40',
+    checkedInAt: '19:02',
+    cancelledAt: null,
     consumptionType: 'PAQUETE',
     remainingClasses: CAMILA.package?.balance ?? 0,
   },
   {
-    attendanceId: 'AS-001205',
+    registrationId: 'RG-000402',
     studentId: ANDRES.studentId,
-    name: 'Andrés',
-    time: '19:05',
+    studentName: 'Andrés',
+    status: 'CHECKED_IN',
+    confirmedAt: null,
+    checkedInAt: '19:05',
+    cancelledAt: null,
     consumptionType: 'SIN_PAQUETE',
     remainingClasses: 0,
+  },
+  {
+    registrationId: 'RG-000403',
+    studentId: 'ST-VALENTINA',
+    studentName: 'Valentina',
+    status: 'MISSING',
+    confirmedAt: '17:50',
+    checkedInAt: null,
+    cancelledAt: null,
+    consumptionType: null,
+    remainingClasses: null,
+  },
+  {
+    registrationId: 'RG-000404',
+    studentId: 'ST-MARIANA',
+    studentName: 'Mariana',
+    status: 'CANCELLED',
+    confirmedAt: '12:10',
+    checkedInAt: null,
+    cancelledAt: '18:20',
+    consumptionType: null,
+    remainingClasses: null,
   },
 ];
 
@@ -261,6 +388,8 @@ export const DIRECTOR_DASHBOARD: DirectorDashboard = {
     {
       className: 'Milonga social',
       teacher: 'Laura',
+      roomName: 'Salón Milonga',
+      floor: 1,
       averageAttendees: 19,
       capacity: 20,
       occupancy: 0.95,
@@ -268,6 +397,8 @@ export const DIRECTOR_DASHBOARD: DirectorDashboard = {
     {
       className: 'Tango salón intermedio',
       teacher: 'Laura',
+      roomName: 'Salón Principal',
+      floor: 1,
       averageAttendees: 16,
       capacity: 20,
       occupancy: 0.8,
@@ -275,6 +406,8 @@ export const DIRECTOR_DASHBOARD: DirectorDashboard = {
     {
       className: 'Práctica guiada',
       teacher: 'Diego',
+      roomName: 'Estudio Norte',
+      floor: 2,
       averageAttendees: 9,
       capacity: 16,
       occupancy: 0.56,
@@ -282,11 +415,25 @@ export const DIRECTOR_DASHBOARD: DirectorDashboard = {
     {
       className: 'Tango básico',
       teacher: 'Diego',
+      roomName: 'Estudio Sur',
+      floor: 2,
       averageAttendees: 11,
       capacity: 18,
       occupancy: 0.61,
     },
   ],
+  /**
+   * A snapshot, not a live poll — floor 1 busy with class, floor 2 quieter.
+   * Sets up the "unused rooms, future capability" framing without wiring
+   * anything to real time.
+   */
+  rooms: [
+    { roomId: 'SALA-1', name: 'Salón Principal', floor: 1, capacity: 20, status: 'OCUPADO', currentClassName: 'Tango salón intermedio' },
+    { roomId: 'SALA-2', name: 'Salón Milonga', floor: 1, capacity: 24, status: 'OCUPADO', currentClassName: 'Milonga social' },
+    { roomId: 'SALA-3', name: 'Estudio Norte', floor: 2, capacity: 16, status: 'LIBRE', currentClassName: null },
+    { roomId: 'SALA-4', name: 'Estudio Sur', floor: 2, capacity: 12, status: 'LIBRE', currentClassName: null },
+  ],
+  engagementBreakdown: { creciendo: 92, estable: 24, enRiesgo: 12 },
   insights: [
     '9 paquetes vencen en los próximos 7 días — contactar antes del viernes evita que se venzan en silencio.',
     '3 alumnos llevan 21 días o más sin venir con clases disponibles: hoy es un buen momento para escribirles.',

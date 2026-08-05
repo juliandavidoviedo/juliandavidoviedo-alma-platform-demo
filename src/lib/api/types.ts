@@ -7,6 +7,13 @@
  * error envelopes, pagination). The goal is that wiring the real Apps Script
  * backend later is a matter of swapping the adapter in `mock-api.ts`, not
  * rewriting every screen's props.
+ *
+ * This file also carries the demo's business-model evolution beyond what the
+ * backend implements today: attendance as a confirm → check-in → cancel
+ * lifecycle (not a single event), student engagement signals, package
+ * purchase history, and physical rooms. These are realistic mock indicators,
+ * not predictive models or a booking system — see mock-data.ts for the
+ * fixtures and mock-api.ts for the (deliberately simple) rules.
  */
 
 export type Role = 'DIRECCION' | 'RECEPCION' | 'ALUMNO';
@@ -15,6 +22,22 @@ export type StudentLevel = 'INICIAL' | 'INTERMEDIO' | 'AVANZADO';
 export type DanceRole = 'LIDER' | 'SEGUIDOR' | 'AMBOS';
 export type LoyaltyTier = 'BRONCE' | 'PLATA' | 'ORO' | 'DIAMANTE';
 export type ConsumptionType = 'PAQUETE' | 'SIN_PAQUETE';
+export type PaymentMethod = 'EFECTIVO' | 'TRANSFERENCIA' | 'TARJETA' | 'QR' | 'OTRO';
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  EFECTIVO: 'Efectivo',
+  TRANSFERENCIA: 'Transferencia',
+  TARJETA: 'Tarjeta',
+  QR: 'QR',
+  OTRO: 'Otro',
+};
+
+export interface Room {
+  roomId: string;
+  name: string;
+  floor: 1 | 2;
+  capacity: number;
+}
 
 export interface PackageInfo {
   packageId: string;
@@ -25,6 +48,18 @@ export interface PackageInfo {
   daysUntilExpiry: number;
 }
 
+/** One purchase event — the package sale that produced (or topped up) `PackageInfo`. */
+export interface PackagePurchase {
+  packageId: string;
+  name: string;
+  purchaseDate: string; // ISO date
+  expiresOn: string;
+  paymentMethod: PaymentMethod;
+  amount: number; // COP
+  classesIncluded: number;
+  classesRemaining: number;
+}
+
 export interface PointsInfo {
   balance: number;
   tier: LoyaltyTier;
@@ -32,6 +67,26 @@ export interface PointsInfo {
   nextTier: string | null;
   pointsToNextTier: number;
   progress: number; // 0-100
+}
+
+/**
+ * A hand-classified read of how a student is trending — not a prediction.
+ * CRECIENDO / ESTABLE / EN_RIESGO are set directly in the fixtures from
+ * plausible attendance patterns, the same way a receptionist would eyeball it.
+ */
+export type EngagementStatus = 'CRECIENDO' | 'ESTABLE' | 'EN_RIESGO';
+
+export const ENGAGEMENT_LABELS: Record<EngagementStatus, string> = {
+  CRECIENDO: 'Creciendo',
+  ESTABLE: 'Estable',
+  EN_RIESGO: 'En riesgo',
+};
+
+export interface EngagementInfo {
+  status: EngagementStatus;
+  attendancesLast30Days: number;
+  daysSinceLastAttendance: number | null;
+  noShowCount: number;
 }
 
 export interface DanceClassInfo {
@@ -44,6 +99,9 @@ export interface DanceClassInfo {
   level: StudentLevel;
   capacity: number;
   attendeeCount: number;
+  roomId: string;
+  roomName: string;
+  floor: 1 | 2;
 }
 
 export interface AttendanceRecord {
@@ -62,10 +120,13 @@ export interface StudentSummary {
   danceRole: DanceRole;
   availableClasses: number;
   package: PackageInfo | null;
+  packageHistory: PackagePurchase[];
   points: PointsInfo;
   streak: { consecutiveWeeks: number };
+  engagement: EngagementInfo;
   upcomingClasses: DanceClassInfo[];
   attendanceHistory: AttendanceRecord[];
+  todayClass: TodayClassStatus | null;
 }
 
 export interface SearchResult {
@@ -76,18 +137,42 @@ export interface SearchResult {
   status: 'ACTIVO' | 'INACTIVO';
 }
 
-export interface LiveRoomEntry {
-  attendanceId: string;
+/**
+ * Attendance lifecycle for one class occurrence. Confirmation reserves an
+ * expected seat; check-in consumes the class; cancellation is allowed up to
+ * 30 minutes before the class starts (communicated in copy — the demo does
+ * not gate this against real wall-clock time, since that would make a fixed
+ * demo date fragile against whenever it's actually opened).
+ */
+export type RegistrationStatus = 'CONFIRMED' | 'CHECKED_IN' | 'CANCELLED' | 'MISSING';
+
+export const REGISTRATION_STATUS_LABELS: Record<RegistrationStatus, string> = {
+  CONFIRMED: 'Confirmado',
+  CHECKED_IN: 'Llegó',
+  CANCELLED: 'Canceló',
+  MISSING: 'No llegó',
+};
+
+export interface ClassRegistration {
+  registrationId: string;
   studentId: string;
-  name: string;
-  time: string; // "19:04"
-  consumptionType: ConsumptionType;
-  remainingClasses: number;
+  studentName: string;
+  status: RegistrationStatus;
+  confirmedAt: string | null; // "18:40"
+  checkedInAt: string | null;
+  cancelledAt: string | null;
+  consumptionType: ConsumptionType | null; // set once checked in
+  remainingClasses: number | null; // set once checked in
 }
 
-export interface LiveRoom {
+export interface ClassRoster {
   danceClass: DanceClassInfo | null;
-  attendees: LiveRoomEntry[];
+  registrations: ClassRegistration[];
+}
+
+export interface TodayClassStatus {
+  danceClass: DanceClassInfo;
+  registrationStatus: RegistrationStatus | null; // null = not registered at all
 }
 
 export interface SellPackageInput {
@@ -96,6 +181,7 @@ export interface SellPackageInput {
   classes: number;
   amountPaid: number;
   validityDays: number;
+  paymentMethod: PaymentMethod;
 }
 
 export interface SellPackageResult {
@@ -114,6 +200,12 @@ export interface ManualCheckInResult {
   message: string;
 }
 
+export interface ConfirmAttendanceResult {
+  ok: true;
+  status: RegistrationStatus;
+  message: string;
+}
+
 export interface RiskStudent {
   studentId: string;
   name: string;
@@ -124,9 +216,26 @@ export interface RiskStudent {
 export interface ClassOccupancy {
   className: string;
   teacher: string;
+  roomName: string;
+  floor: 1 | 2;
   averageAttendees: number;
   capacity: number;
   occupancy: number; // 0-1
+}
+
+export interface RoomStatus {
+  roomId: string;
+  name: string;
+  floor: 1 | 2;
+  capacity: number;
+  status: 'OCUPADO' | 'LIBRE';
+  currentClassName: string | null;
+}
+
+export interface EngagementBreakdown {
+  creciendo: number;
+  estable: number;
+  enRiesgo: number;
 }
 
 export interface DirectorDashboard {
@@ -142,6 +251,8 @@ export interface DirectorDashboard {
   deferredRevenue: number; // COP
   studentsAtRisk: RiskStudent[];
   occupancyByClass: ClassOccupancy[];
+  rooms: RoomStatus[];
+  engagementBreakdown: EngagementBreakdown;
   insights: string[];
 }
 
@@ -165,5 +276,7 @@ export interface RotatingCode {
     name: string;
     teacher: string;
     startTime: string;
+    roomName: string;
+    floor: 1 | 2;
   } | null;
 }

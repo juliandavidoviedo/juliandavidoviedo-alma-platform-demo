@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from 'react';
-import type { DanceClassInfo, LiveRoomEntry } from './types';
+import type { ClassRegistration, DanceClassInfo } from './types';
 import {
   CURRENT_CLASS,
-  INITIAL_LIVE_ROOM,
+  INITIAL_ROSTER,
   INITIAL_STUDENTS,
   type DemoStudentRecord,
 } from './mock-data';
@@ -20,14 +20,14 @@ import {
  */
 export interface DemoState {
   students: Record<string, DemoStudentRecord>;
-  liveRoom: LiveRoomEntry[];
+  roster: ClassRegistration[];
   currentClass: DanceClassInfo;
 }
 
 function initialState(): DemoState {
   return structuredClone({
     students: INITIAL_STUDENTS,
-    liveRoom: INITIAL_LIVE_ROOM,
+    roster: INITIAL_ROSTER,
     currentClass: CURRENT_CLASS,
   });
 }

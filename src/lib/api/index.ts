@@ -8,5 +8,10 @@
  */
 export { api } from './mock-api';
 export { useDemoState, resetState } from './store';
-export { JULIAN } from './mock-data';
+export { JULIAN, ROOMS } from './mock-data';
+export {
+  PAYMENT_METHOD_LABELS,
+  ENGAGEMENT_LABELS,
+  REGISTRATION_STATUS_LABELS,
+} from './types';
 export type * from './types';
