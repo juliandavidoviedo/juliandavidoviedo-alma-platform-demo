@@ -1,0 +1,37 @@
+@import 'tailwindcss';
+
+/*
+ * Brand primitives only.
+ *
+ * The full semantic token layer, typography scale and component styles arrive
+ * with the design-system commit. This file carries just enough for the scaffold
+ * placeholder to look like Alma Platform rather than a Vite template.
+ */
+@theme {
+  --color-alma-ink: #12100e;
+  --color-alma-wine: #8c2f39;
+  --color-alma-gold: #c9a227;
+  --color-alma-cream: #f2ebe3;
+
+  --font-display: 'Playfair Display', ui-serif, Georgia, serif;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  /* 17px base — the audience includes students over 65. */
+  font-size: 17px;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background-color: var(--color-alma-ink);
+  color: var(--color-alma-cream);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
