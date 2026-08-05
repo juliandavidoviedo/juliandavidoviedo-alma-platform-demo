@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Search, UserRound, PackagePlus, LogIn, AlertCircle, History } from 'lucide-react';
-import { api, ENGAGEMENT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/api';
+import { Search, UserRound, PackagePlus, LogIn, AlertCircle, History, BellRing, Check } from 'lucide-react';
+import { api, ENGAGEMENT_LABELS, PAYMENT_METHOD_LABELS, RENEWAL_METHOD_LABELS } from '../../lib/api';
 import type {
   ClassRoster,
   PaymentMethod,
   RegistrationStatus,
+  RenewalRequest,
   SearchResult,
   StudentSummary,
 } from '../../lib/api';
@@ -60,6 +61,8 @@ export function Reception() {
   const [loadingProfile, setLoadingProfile] = useState(false);
 
   const [roster, setRoster] = useState<ClassRoster | null>(null);
+  const [renewalRequests, setRenewalRequests] = useState<RenewalRequest[]>([]);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   const [selectedPackage, setSelectedPackage] = useState<PackageOption>(PACKAGE_OPTIONS[2]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('TRANSFERENCIA');
@@ -80,11 +83,23 @@ export function Reception() {
     api.frontDesk.getClassRoster().then(setRoster);
   }
 
+  function loadRenewalRequests() {
+    api.frontDesk.getRenewalRequests().then(setRenewalRequests);
+  }
+
   useEffect(() => {
     runSearch('Julián');
     loadRoster();
+    loadRenewalRequests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function resolveRenewal(requestId: string) {
+    setResolvingId(requestId);
+    await api.frontDesk.resolveRenewalRequest(requestId);
+    loadRenewalRequests();
+    setResolvingId(null);
+  }
 
   function handleSearchChange(value: string) {
     setQuery(value);
@@ -116,6 +131,7 @@ export function Reception() {
     setProfile(refreshed);
     setFeedback(result.message);
     setSelling(false);
+    loadRenewalRequests();
   }
 
   async function manualCheckIn() {
@@ -330,54 +346,95 @@ export function Reception() {
           )}
         </div>
 
-        {/* Class roster */}
-        <Card className="h-fit">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-display text-lg text-alma-text">Clase de hoy</h2>
-              {roster?.danceClass && (
-                <p className="text-xs text-alma-text-muted">
-                  {roster.danceClass.name} · {roster.danceClass.startTime}–{roster.danceClass.endTime} ·{' '}
-                  {roster.danceClass.roomName} (piso {roster.danceClass.floor}) · Profesora{' '}
-                  {roster.danceClass.teacher}
-                </p>
-              )}
-            </div>
-            <Badge tone="gold">
-              {roster?.registrations.filter((r) => r.status === 'CHECKED_IN').length ?? 0} en sala
-            </Badge>
-          </div>
-
-          <ul className="mt-5 divide-y divide-alma-border">
-            {roster?.registrations.map((entry) => (
-              <li key={entry.registrationId} className="flex items-center justify-between py-3">
-                <div>
-                  <p className="text-sm font-medium text-alma-text">{entry.studentName}</p>
+        {/* Class roster + renewal requests */}
+        <div className="flex flex-col gap-6">
+          <Card className="h-fit">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-display text-lg text-alma-text">Clase de hoy</h2>
+                {roster?.danceClass && (
                   <p className="text-xs text-alma-text-muted">
-                    {entry.status === 'CHECKED_IN' && `Llegó a las ${entry.checkedInAt}`}
-                    {entry.status === 'CONFIRMED' && `Confirmó a las ${entry.confirmedAt}`}
-                    {entry.status === 'MISSING' && `Confirmó a las ${entry.confirmedAt} — no llegó`}
-                    {entry.status === 'CANCELLED' && `Canceló a las ${entry.cancelledAt}`}
+                    {roster.danceClass.name} · {roster.danceClass.startTime}–{roster.danceClass.endTime} ·{' '}
+                    {roster.danceClass.roomName} (piso {roster.danceClass.floor}) · Profesora{' '}
+                    {roster.danceClass.teacher}
                   </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {entry.status === 'CHECKED_IN' && entry.consumptionType === 'SIN_PAQUETE' && (
-                    <Badge tone="danger">
-                      <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
-                      Sin paquete
-                    </Badge>
+                )}
+              </div>
+              <Badge tone="gold">
+                {roster?.registrations.filter((r) => r.status === 'CHECKED_IN').length ?? 0} en sala
+              </Badge>
+            </div>
+
+            <ul className="mt-5 divide-y divide-alma-border">
+              {roster?.registrations.map((entry) => (
+                <li key={entry.registrationId} className="flex items-center justify-between py-3">
+                  <div>
+                    <p className="text-sm font-medium text-alma-text">{entry.studentName}</p>
+                    <p className="text-xs text-alma-text-muted">
+                      {entry.status === 'CHECKED_IN' && `Llegó a las ${entry.checkedInAt}`}
+                      {entry.status === 'CONFIRMED' && `Confirmó a las ${entry.confirmedAt}`}
+                      {entry.status === 'MISSING' && `Confirmó a las ${entry.confirmedAt} — no llegó`}
+                      {entry.status === 'CANCELLED' && `Canceló a las ${entry.cancelledAt}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {entry.status === 'CHECKED_IN' && entry.consumptionType === 'SIN_PAQUETE' && (
+                      <Badge tone="danger">
+                        <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                        Sin paquete
+                      </Badge>
+                    )}
+                    <Badge tone={REGISTRATION_TONE[entry.status]}>{REGISTRATION_LABEL[entry.status]}</Badge>
+                  </div>
+                </li>
+              ))}
+              {roster && roster.registrations.length === 0 && (
+                <li className="py-6 text-center text-sm text-alma-text-muted">
+                  Nadie ha confirmado ni marcado asistencia todavía.
+                </li>
+              )}
+            </ul>
+          </Card>
+
+          {/* Renewal / reactivation requests raised from the student portal */}
+          <Card className="h-fit">
+            <div className="flex items-center gap-2">
+              <BellRing className="h-4 w-4 text-alma-gold" aria-hidden="true" />
+              <h2 className="font-display text-lg text-alma-text">Solicitudes de renovación</h2>
+            </div>
+            <p className="mt-1 text-xs text-alma-text-muted">
+              Avisos enviados por alumnos desde su portal — aviso directo o transferencia por QR.
+            </p>
+
+            <ul className="mt-4 divide-y divide-alma-border">
+              {renewalRequests.map((r) => (
+                <li key={r.requestId} className="flex items-center justify-between py-3">
+                  <div>
+                    <p className="text-sm font-medium text-alma-text">{r.studentName}</p>
+                    <p className="text-xs text-alma-text-muted">
+                      {RENEWAL_METHOD_LABELS[r.method]} · {r.requestedAt}
+                    </p>
+                  </div>
+                  {r.status === 'PENDIENTE' ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => resolveRenewal(r.requestId)}
+                      disabled={resolvingId === r.requestId}
+                    >
+                      <Check className="h-4 w-4" aria-hidden="true" />
+                      Contactado
+                    </Button>
+                  ) : (
+                    <Badge tone="neutral">Contactado</Badge>
                   )}
-                  <Badge tone={REGISTRATION_TONE[entry.status]}>{REGISTRATION_LABEL[entry.status]}</Badge>
-                </div>
-              </li>
-            ))}
-            {roster && roster.registrations.length === 0 && (
-              <li className="py-6 text-center text-sm text-alma-text-muted">
-                Nadie ha confirmado ni marcado asistencia todavía.
-              </li>
-            )}
-          </ul>
-        </Card>
+                </li>
+              ))}
+              {renewalRequests.length === 0 && (
+                <li className="py-6 text-center text-sm text-alma-text-muted">Sin solicitudes pendientes.</li>
+              )}
+            </ul>
+          </Card>
+        </div>
       </div>
     </div>
   );
