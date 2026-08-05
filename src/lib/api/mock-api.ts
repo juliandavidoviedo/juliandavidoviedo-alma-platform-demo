@@ -8,11 +8,15 @@ import type {
   ManualCheckInResult,
   PaymentMethod,
   RegistrationStatus,
+  RenewalMethod,
+  RenewalRequest,
+  RequestRenewalResult,
   RotatingCode,
   SearchResult,
   SellPackageInput,
   SellPackageResult,
   StudentSummary,
+  UpcomingClassStatus,
 } from './types';
 import { DEMO_TODAY, DIRECTOR_DASHBOARD, JULIAN } from './mock-data';
 import { getState, setState, type DemoState } from './store';
@@ -28,7 +32,14 @@ function nowTime(): string {
 }
 
 function toStudentSummary(state: DemoState, record: DemoStudentRecord): StudentSummary {
-  const registration = state.roster.find((r) => r.studentId === record.studentId) ?? null;
+  const registrationFor = (classId: string) =>
+    state.roster.find((r) => r.studentId === record.studentId && r.classId === classId);
+
+  const upcomingClasses: UpcomingClassStatus[] = record.upcomingClasses.map((cls) => ({
+    ...cls,
+    registrationStatus: registrationFor(cls.classId)?.status ?? null,
+  }));
+
   return {
     studentId: record.studentId,
     firstName: record.firstName,
@@ -40,11 +51,11 @@ function toStudentSummary(state: DemoState, record: DemoStudentRecord): StudentS
     points: record.points,
     streak: record.streak,
     engagement: record.engagement,
-    upcomingClasses: record.upcomingClasses,
+    upcomingClasses,
     attendanceHistory: record.attendanceHistory,
     todayClass: {
       danceClass: state.currentClass,
-      registrationStatus: registration?.status ?? null,
+      registrationStatus: registrationFor(state.currentClass.classId)?.status ?? null,
     },
   };
 }
@@ -57,8 +68,8 @@ function requireStudent(state: DemoState, studentId: string): DemoStudentRecord 
   return record;
 }
 
-function findRegistration(state: DemoState, studentId: string): ClassRegistration | undefined {
-  return state.roster.find((r) => r.studentId === studentId);
+function findRegistration(state: DemoState, studentId: string, classId: string): ClassRegistration | undefined {
+  return state.roster.find((r) => r.studentId === studentId && r.classId === classId);
 }
 
 function daysBetween(fromIso: string, toIso: string): number {
@@ -82,19 +93,45 @@ function nextAttendanceId(state: DemoState): string {
   return `AS-${String(max + 1).padStart(6, '0')}`;
 }
 
+function nextRegistrationId(state: DemoState): string {
+  const max = state.roster.reduce((acc, r) => {
+    const n = Number(r.registrationId.split('-')[1] ?? 0);
+    return Number.isFinite(n) ? Math.max(acc, n) : acc;
+  }, 400);
+  return `RG-${String(max + 1).padStart(6, '0')}`;
+}
+
 /**
- * Check-in. If the student already has a CONFIRMED (or MISSING) registration
- * for today's class, it is upgraded in place to CHECKED_IN — confirming
- * ahead of time and then checking in is the same seat, not two events. With
- * no prior registration, this creates a walk-in CHECKED_IN entry directly,
- * same as a student who never confirmed and just showed up.
+ * Bumps how many seats are shown reserved for one of the student's OWN
+ * upcoming-class cards — a cheap stand-in for "aforo" without normalizing
+ * classes into a shared, cross-student collection. Each student's copy of a
+ * class only reflects their own reservation traffic, not everyone else's;
+ * fine for a demo, called out as a simplification in the delivery notes.
+ */
+function bumpOwnUpcomingCount(record: DemoStudentRecord, classId: string, delta: number): DemoStudentRecord {
+  return {
+    ...record,
+    upcomingClasses: record.upcomingClasses.map((cls) =>
+      cls.classId === classId ? { ...cls, attendeeCount: Math.max(0, cls.attendeeCount + delta) } : cls,
+    ),
+  };
+}
+
+/**
+ * Check-in — always today's live class (state.currentClass). If the student
+ * already has a CONFIRMED (or MISSING) registration for it, it is upgraded
+ * in place to CHECKED_IN — confirming ahead of time and then checking in is
+ * the same seat, not two events. With no prior registration, this creates a
+ * walk-in CHECKED_IN entry directly, same as a student who never confirmed
+ * and just showed up.
  */
 function performCheckIn(
   state: DemoState,
   studentId: string,
 ): { next: DemoState; result: ManualCheckInResult } {
   const record = requireStudent(state, studentId);
-  const existing = findRegistration(state, studentId);
+  const classId = state.currentClass.classId;
+  const existing = findRegistration(state, studentId, classId);
 
   if (existing?.status === 'CHECKED_IN') {
     return {
@@ -146,6 +183,7 @@ function performCheckIn(
         ...state.roster,
         {
           registrationId: attendanceId,
+          classId,
           studentId,
           studentName: record.firstName,
           status: 'CHECKED_IN' as const,
@@ -163,7 +201,7 @@ function performCheckIn(
     roster: nextRoster,
     currentClass: {
       ...state.currentClass,
-      attendeeCount: nextRoster.filter((r) => r.status === 'CHECKED_IN').length,
+      attendeeCount: nextRoster.filter((r) => r.classId === classId && r.status === 'CHECKED_IN').length,
     },
   };
 
@@ -181,9 +219,14 @@ function performCheckIn(
   };
 }
 
-function performConfirm(state: DemoState, studentId: string): { next: DemoState; result: ConfirmAttendanceResult } {
+/** Reserves a seat for ANY class — today's or a future one on the student's agenda. */
+function performConfirm(
+  state: DemoState,
+  studentId: string,
+  classId: string,
+): { next: DemoState; result: ConfirmAttendanceResult } {
   const record = requireStudent(state, studentId);
-  const existing = findRegistration(state, studentId);
+  const existing = findRegistration(state, studentId, classId);
 
   if (existing?.status === 'CHECKED_IN') {
     return {
@@ -191,12 +234,14 @@ function performConfirm(state: DemoState, studentId: string): { next: DemoState;
       result: {
         ok: true,
         status: 'CHECKED_IN',
-        message: `${record.firstName} ya hizo check-in — no hace falta confirmar (simulación).`,
+        message: `${record.firstName} ya hizo check-in en esta clase — no hace falta confirmar (simulación).`,
       },
     };
   }
 
   const time = nowTime();
+  const holdsSeat = existing && (existing.status === 'CONFIRMED' || existing.status === 'MISSING');
+
   const nextRoster: ClassRegistration[] = existing
     ? state.roster.map((r) =>
         r.registrationId === existing.registrationId
@@ -206,7 +251,8 @@ function performConfirm(state: DemoState, studentId: string): { next: DemoState;
     : [
         ...state.roster,
         {
-          registrationId: `RG-${nextAttendanceId(state).slice(3)}`,
+          registrationId: nextRegistrationId(state),
+          classId,
           studentId,
           studentName: record.firstName,
           status: 'CONFIRMED' as const,
@@ -218,19 +264,31 @@ function performConfirm(state: DemoState, studentId: string): { next: DemoState;
         },
       ];
 
+  const isTodaysClass = classId === state.currentClass.classId;
+  const updatedRecord =
+    !holdsSeat && !isTodaysClass ? bumpOwnUpcomingCount(record, classId, 1) : record;
+
   return {
-    next: { ...state, roster: nextRoster },
+    next: {
+      ...state,
+      roster: nextRoster,
+      students: updatedRecord === record ? state.students : { ...state.students, [studentId]: updatedRecord },
+    },
     result: {
       ok: true,
       status: 'CONFIRMED',
-      message: 'Asistencia confirmada (simulación). Recepción ya sabe que vienes hoy.',
+      message: 'Cupo reservado (simulación). Puedes cancelar hasta 30 minutos antes de la clase.',
     },
   };
 }
 
-function performCancel(state: DemoState, studentId: string): { next: DemoState; result: ConfirmAttendanceResult } {
+function performCancel(
+  state: DemoState,
+  studentId: string,
+  classId: string,
+): { next: DemoState; result: ConfirmAttendanceResult } {
   const record = requireStudent(state, studentId);
-  const existing = findRegistration(state, studentId);
+  const existing = findRegistration(state, studentId, classId);
 
   if (!existing || existing.status === 'CANCELLED') {
     return {
@@ -238,7 +296,7 @@ function performCancel(state: DemoState, studentId: string): { next: DemoState; 
       result: {
         ok: true,
         status: 'CANCELLED',
-        message: `${record.firstName} no tenía una confirmación activa (simulación).`,
+        message: `${record.firstName} no tenía una reserva activa para esta clase (simulación).`,
       },
     };
   }
@@ -255,18 +313,54 @@ function performCancel(state: DemoState, studentId: string): { next: DemoState; 
   }
 
   const time = nowTime();
+  const heldSeat = existing.status === 'CONFIRMED' || existing.status === 'MISSING';
   const nextRoster = state.roster.map((r) =>
     r.registrationId === existing.registrationId
       ? { ...r, status: 'CANCELLED' as const, cancelledAt: time }
       : r,
   );
 
+  const isTodaysClass = classId === state.currentClass.classId;
+  const updatedRecord = heldSeat && !isTodaysClass ? bumpOwnUpcomingCount(record, classId, -1) : record;
+
   return {
-    next: { ...state, roster: nextRoster },
+    next: {
+      ...state,
+      roster: nextRoster,
+      students: updatedRecord === record ? state.students : { ...state.students, [studentId]: updatedRecord },
+    },
     result: {
       ok: true,
       status: 'CANCELLED',
-      message: 'Confirmación cancelada (simulación). Puedes cancelar hasta 30 minutos antes de la clase.',
+      message: 'Reserva cancelada (simulación). Recuerda: se permite hasta 30 minutos antes de la clase.',
+    },
+  };
+}
+
+function performRequestRenewal(
+  state: DemoState,
+  studentId: string,
+  method: RenewalMethod,
+): { next: DemoState; result: RequestRenewalResult } {
+  const record = requireStudent(state, studentId);
+  const request: RenewalRequest = {
+    requestId: `RN-${String(state.renewalRequests.length + 1).padStart(4, '0')}`,
+    studentId,
+    studentName: record.firstName,
+    method,
+    requestedAt: nowTime(),
+    status: 'PENDIENTE',
+  };
+
+  return {
+    next: { ...state, renewalRequests: [request, ...state.renewalRequests] },
+    result: {
+      ok: true,
+      request,
+      message:
+        method === 'ALARMA_RECEPCION'
+          ? 'Aviso enviado a recepción (simulación). Te van a contactar para renovar tu plan.'
+          : 'Notificación de pago enviada (simulación). Recepción confirmará tu transferencia y activará tu paquete.',
     },
   };
 }
@@ -341,6 +435,10 @@ export const api = {
       setState((prev) => ({
         ...prev,
         students: { ...prev.students, [input.studentId]: updatedRecord },
+        // Selling a package resolves whatever pending renewal request brought the student in.
+        renewalRequests: prev.renewalRequests.map((r) =>
+          r.studentId === input.studentId && r.status === 'PENDIENTE' ? { ...r, status: 'CONTACTADO' } : r,
+        ),
       }));
 
       return {
@@ -362,7 +460,26 @@ export const api = {
     async getClassRoster(): Promise<ClassRoster> {
       await delay(250);
       const state = getState();
-      return { danceClass: state.currentClass, registrations: state.roster };
+      return {
+        danceClass: state.currentClass,
+        registrations: state.roster.filter((r) => r.classId === state.currentClass.classId),
+      };
+    },
+
+    async getRenewalRequests(): Promise<RenewalRequest[]> {
+      await delay(250);
+      return getState().renewalRequests;
+    },
+
+    async resolveRenewalRequest(requestId: string): Promise<{ ok: true }> {
+      await delay(300);
+      setState((prev) => ({
+        ...prev,
+        renewalRequests: prev.renewalRequests.map((r) =>
+          r.requestId === requestId ? { ...r, status: 'CONTACTADO' } : r,
+        ),
+      }));
+      return { ok: true };
     },
   },
 
@@ -371,6 +488,36 @@ export const api = {
       await delay();
       const state = getState();
       return toStudentSummary(state, requireStudent(state, studentId));
+    },
+
+    /** Reserves a seat for any class on the student's own agenda — today's live class or a future one. */
+    async confirmClass(classId: string, studentId: string = JULIAN.studentId): Promise<ConfirmAttendanceResult> {
+      await delay(300);
+      const { next, result } = performConfirm(getState(), studentId, classId);
+      setState(() => next);
+      return result;
+    },
+
+    /**
+     * Allowed up to 30 minutes before class — stated in the confirmation
+     * copy, not enforced against real wall-clock time here (see the
+     * RegistrationStatus doc comment in types.ts for why).
+     */
+    async cancelClass(classId: string, studentId: string = JULIAN.studentId): Promise<ConfirmAttendanceResult> {
+      await delay(300);
+      const { next, result } = performCancel(getState(), studentId, classId);
+      setState(() => next);
+      return result;
+    },
+
+    async requestRenewal(
+      method: RenewalMethod,
+      studentId: string = JULIAN.studentId,
+    ): Promise<RequestRenewalResult> {
+      await delay(350);
+      const { next, result } = performRequestRenewal(getState(), studentId, method);
+      setState(() => next);
+      return result;
     },
   },
 
@@ -396,26 +543,6 @@ export const api = {
           floor: state.currentClass.floor,
         },
       };
-    },
-
-    /** Reserves an expected seat for today's class. Does not consume it. */
-    async confirm(studentId: string = JULIAN.studentId): Promise<ConfirmAttendanceResult> {
-      await delay(300);
-      const { next, result } = performConfirm(getState(), studentId);
-      setState(() => next);
-      return result;
-    },
-
-    /**
-     * Allowed up to 30 minutes before class — stated in the confirmation
-     * copy, not enforced against real wall-clock time here (see the
-     * RegistrationStatus doc comment in types.ts for why).
-     */
-    async cancelConfirmation(studentId: string = JULIAN.studentId): Promise<ConfirmAttendanceResult> {
-      await delay(300);
-      const { next, result } = performCancel(getState(), studentId);
-      setState(() => next);
-      return result;
     },
 
     /**

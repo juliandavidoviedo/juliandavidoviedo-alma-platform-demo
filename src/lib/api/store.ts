@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { ClassRegistration, DanceClassInfo } from './types';
+import type { ClassRegistration, DanceClassInfo, RenewalRequest } from './types';
 import {
   CURRENT_CLASS,
   INITIAL_ROSTER,
@@ -22,6 +22,7 @@ export interface DemoState {
   students: Record<string, DemoStudentRecord>;
   roster: ClassRegistration[];
   currentClass: DanceClassInfo;
+  renewalRequests: RenewalRequest[];
 }
 
 function initialState(): DemoState {
@@ -29,6 +30,7 @@ function initialState(): DemoState {
     students: INITIAL_STUDENTS,
     roster: INITIAL_ROSTER,
     currentClass: CURRENT_CLASS,
+    renewalRequests: [],
   });
 }
 

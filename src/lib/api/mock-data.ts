@@ -305,6 +305,7 @@ export const INITIAL_STUDENTS: Record<string, DemoStudentRecord> = {
 export const INITIAL_ROSTER: ClassRegistration[] = [
   {
     registrationId: 'RG-000401',
+    classId: CURRENT_CLASS.classId,
     studentId: CAMILA.studentId,
     studentName: 'Camila',
     status: 'CHECKED_IN',
@@ -316,6 +317,7 @@ export const INITIAL_ROSTER: ClassRegistration[] = [
   },
   {
     registrationId: 'RG-000402',
+    classId: CURRENT_CLASS.classId,
     studentId: ANDRES.studentId,
     studentName: 'Andrés',
     status: 'CHECKED_IN',
@@ -327,6 +329,7 @@ export const INITIAL_ROSTER: ClassRegistration[] = [
   },
   {
     registrationId: 'RG-000403',
+    classId: CURRENT_CLASS.classId,
     studentId: 'ST-VALENTINA',
     studentName: 'Valentina',
     status: 'MISSING',
@@ -338,6 +341,7 @@ export const INITIAL_ROSTER: ClassRegistration[] = [
   },
   {
     registrationId: 'RG-000404',
+    classId: CURRENT_CLASS.classId,
     studentId: 'ST-MARIANA',
     studentName: 'Mariana',
     status: 'CANCELLED',

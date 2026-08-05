@@ -13,5 +13,6 @@ export {
   PAYMENT_METHOD_LABELS,
   ENGAGEMENT_LABELS,
   REGISTRATION_STATUS_LABELS,
+  RENEWAL_METHOD_LABELS,
 } from './types';
 export type * from './types';

@@ -124,7 +124,7 @@ export interface StudentSummary {
   points: PointsInfo;
   streak: { consecutiveWeeks: number };
   engagement: EngagementInfo;
-  upcomingClasses: DanceClassInfo[];
+  upcomingClasses: UpcomingClassStatus[];
   attendanceHistory: AttendanceRecord[];
   todayClass: TodayClassStatus | null;
 }
@@ -155,6 +155,7 @@ export const REGISTRATION_STATUS_LABELS: Record<RegistrationStatus, string> = {
 
 export interface ClassRegistration {
   registrationId: string;
+  classId: string;
   studentId: string;
   studentName: string;
   status: RegistrationStatus;
@@ -173,6 +174,16 @@ export interface ClassRoster {
 export interface TodayClassStatus {
   danceClass: DanceClassInfo;
   registrationStatus: RegistrationStatus | null; // null = not registered at all
+}
+
+/**
+ * An upcoming class as seen by one student — the same DanceClassInfo plus
+ * their own reservation state for it, so each class in "Próximas clases" can
+ * carry its own Reservar/Cancelar control (a student may reserve more than
+ * one class the same day).
+ */
+export interface UpcomingClassStatus extends DanceClassInfo {
+  registrationStatus: RegistrationStatus | null;
 }
 
 export interface SellPackageInput {
@@ -279,4 +290,33 @@ export interface RotatingCode {
     roomName: string;
     floor: 1 | 2;
   } | null;
+}
+
+/**
+ * Renewal / reactivation. The demo never touches real money: "requesting"
+ * either flags reception for a callback or shows a transfer QR the student
+ * says they already used — either way it lands as one pending request that
+ * a human at the front desk resolves.
+ */
+export type RenewalMethod = 'ALARMA_RECEPCION' | 'QR_TRANSFERENCIA';
+export type RenewalStatus = 'PENDIENTE' | 'CONTACTADO';
+
+export const RENEWAL_METHOD_LABELS: Record<RenewalMethod, string> = {
+  ALARMA_RECEPCION: 'Aviso a recepción',
+  QR_TRANSFERENCIA: 'Transferencia por QR',
+};
+
+export interface RenewalRequest {
+  requestId: string;
+  studentId: string;
+  studentName: string;
+  method: RenewalMethod;
+  requestedAt: string; // "18:40"
+  status: RenewalStatus;
+}
+
+export interface RequestRenewalResult {
+  ok: true;
+  request: RenewalRequest;
+  message: string;
 }
