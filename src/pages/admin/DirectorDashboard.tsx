@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Lightbulb, Users2, Wallet, CalendarClock, Activity } from 'lucide-react';
+import {
+  AlertTriangle,
+  Lightbulb,
+  Users2,
+  Wallet,
+  CalendarClock,
+  Activity,
+  DoorOpen,
+  Sparkles,
+} from 'lucide-react';
 import { api } from '../../lib/api';
 import type { DirectorDashboard as DirectorDashboardData } from '../../lib/api';
 import { Card } from '../../components/ui/Card';
@@ -93,10 +102,26 @@ export function DirectorDashboard() {
           <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* Students at risk */}
             <Card>
-              <h2 className="font-display text-lg text-alma-text">Alumnos en riesgo de fuga</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-lg text-alma-text">Alumnos en riesgo de fuga</h2>
+              </div>
               <p className="mt-1 text-xs text-alma-text-muted">
                 21 días o más sin venir, con clases disponibles.
               </p>
+
+              {/* Engagement breakdown — a read of the whole roster, not just the at-risk few */}
+              <div className="mt-4 flex gap-2 text-xs">
+                <span className="rounded-full border border-alma-border bg-alma-bg px-3 py-1 text-alma-text-secondary">
+                  Creciendo {data.engagementBreakdown.creciendo}
+                </span>
+                <span className="rounded-full border border-alma-border bg-alma-bg px-3 py-1 text-alma-text-secondary">
+                  Estable {data.engagementBreakdown.estable}
+                </span>
+                <span className="rounded-full border border-alma-wine/40 bg-alma-wine/10 px-3 py-1 text-[#e4a3ab]">
+                  En riesgo {data.engagementBreakdown.enRiesgo}
+                </span>
+              </div>
+
               <ul className="mt-4 divide-y divide-alma-border">
                 {data.studentsAtRisk.map((student) => (
                   <li key={student.studentId} className="flex items-center justify-between py-3">
@@ -133,12 +158,52 @@ export function DirectorDashboard() {
                         style={{ width: `${Math.round(cls.occupancy * 100)}%` }}
                       />
                     </div>
-                    <p className="mt-1 text-xs text-alma-text-muted">Profesor: {cls.teacher}</p>
+                    <p className="mt-1 text-xs text-alma-text-muted">
+                      {cls.roomName} (piso {cls.floor}) · Profesor {cls.teacher}
+                    </p>
                   </li>
                 ))}
               </ul>
             </Card>
           </div>
+
+          {/* Rooms and future capability */}
+          <Card className="mt-6">
+            <div className="flex items-center gap-2">
+              <DoorOpen className="h-4 w-4 text-alma-gold" aria-hidden="true" />
+              <h2 className="font-display text-lg text-alma-text">Salones</h2>
+            </div>
+            <p className="mt-1 text-xs text-alma-text-muted">
+              Dos pisos, cuatro salones. Estado en un momento típico de la semana.
+            </p>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {data.rooms.map((room) => (
+                <div key={room.roomId} className="rounded-xl border border-alma-border bg-alma-bg p-3.5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-alma-text">{room.name}</p>
+                    <Badge tone={room.status === 'OCUPADO' ? 'gold' : 'neutral'}>
+                      {room.status === 'OCUPADO' ? 'Ocupado' : 'Libre'}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-alma-text-muted">
+                    Piso {room.floor} · cupo {room.capacity}
+                  </p>
+                  <p className="mt-2 text-xs text-alma-text-secondary">
+                    {room.status === 'OCUPADO' ? room.currentClassName : 'Sin clase programada ahora'}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-alma-gold/25 bg-alma-gold/5 p-3.5 text-xs text-alma-text-secondary">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-alma-gold" aria-hidden="true" />
+              <span>
+                Próximamente: los salones libres fuera de horario de clase podrán ofrecerse para clases
+                privadas, ensayos y alquiler de práctica — sin necesidad de sumar metros cuadrados.
+              </span>
+            </div>
+          </Card>
         </>
       )}
     </div>

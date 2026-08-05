@@ -69,7 +69,8 @@ export function CheckIn() {
       </h1>
       {rotating?.classInProgress && (
         <p className="text-xs text-alma-text-muted">
-          Comenzó a las {rotating.classInProgress.startTime} · Prof. {rotating.classInProgress.teacher}
+          Comenzó a las {rotating.classInProgress.startTime} · {rotating.classInProgress.roomName} (piso{' '}
+          {rotating.classInProgress.floor}) · Prof. {rotating.classInProgress.teacher}
         </p>
       )}
 
