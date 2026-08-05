@@ -1,24 +1,33 @@
 import type {
+  CancelClassResult,
   CheckInScenario,
   CheckInSimulateResult,
   ClassRegistration,
   ClassRoster,
   ConfirmAttendanceResult,
+  ConfirmTeacherResult,
+  CreateRoomBookingInput,
+  CreateRoomBookingResult,
+  CreateStudentInput,
+  CreateStudentResult,
   DirectorDashboard,
   ManualCheckInResult,
   PaymentMethod,
+  ReceptionSummary,
   RegistrationStatus,
   RenewalMethod,
   RenewalRequest,
   RequestRenewalResult,
+  RoomBooking,
   RotatingCode,
+  ScheduledClass,
   SearchResult,
   SellPackageInput,
   SellPackageResult,
   StudentSummary,
   UpcomingClassStatus,
 } from './types';
-import { DEMO_TODAY, DIRECTOR_DASHBOARD, JULIAN } from './mock-data';
+import { DEMO_TODAY, DIRECTOR_DASHBOARD, JULIAN, ROOMS } from './mock-data';
 import { getState, setState, type DemoState } from './store';
 import type { DemoStudentRecord } from './mock-data';
 
@@ -365,6 +374,29 @@ function performRequestRenewal(
   };
 }
 
+function hoursBetween(startTime: string, endTime: string): number {
+  const [sh, sm] = startTime.split(':').map(Number);
+  const [eh, em] = endTime.split(':').map(Number);
+  return (eh * 60 + em - (sh * 60 + sm)) / 60;
+}
+
+function nextStudentId(state: DemoState): string {
+  const count = Object.keys(state.students).length;
+  return `ST-NEW-${String(count + 1).padStart(3, '0')}`;
+}
+
+function generatePin(): string {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+function nextBookingId(state: DemoState): string {
+  const max = state.roomBookings.reduce((acc, b) => {
+    const n = Number(b.bookingId.split('-')[1] ?? 0);
+    return Number.isFinite(n) ? Math.max(acc, n) : acc;
+  }, 0);
+  return `RB-${String(max + 1).padStart(4, '0')}`;
+}
+
 export const api = {
   admin: {
     async getDashboard(): Promise<DirectorDashboard> {
@@ -477,6 +509,175 @@ export const api = {
         ...prev,
         renewalRequests: prev.renewalRequests.map((r) =>
           r.requestId === requestId ? { ...r, status: 'CONTACTADO' } : r,
+        ),
+      }));
+      return { ok: true };
+    },
+
+    /** New alumno, front-desk side. PIN returned once, same rule as the real backend (docs/03). */
+    async createStudent(input: CreateStudentInput): Promise<CreateStudentResult> {
+      await delay(500);
+      const state = getState();
+      const studentId = nextStudentId(state);
+      const pin = generatePin();
+
+      const record: DemoStudentRecord = {
+        studentId,
+        firstName: input.firstName,
+        level: input.level,
+        danceRole: input.danceRole,
+        status: 'ACTIVO',
+        package: null,
+        packageHistory: [],
+        points: {
+          balance: 0,
+          tier: 'BRONCE',
+          tierLabel: 'Bronce',
+          nextTier: 'Plata',
+          pointsToNextTier: 100,
+          progress: 0,
+        },
+        streak: { consecutiveWeeks: 0 },
+        engagement: {
+          status: 'ESTABLE',
+          attendancesLast30Days: 0,
+          daysSinceLastAttendance: null,
+          noShowCount: 0,
+        },
+        upcomingClasses: [],
+        attendanceHistory: [],
+      };
+
+      setState((prev) => ({ ...prev, students: { ...prev.students, [studentId]: record } }));
+
+      return {
+        ok: true,
+        studentId,
+        pin,
+        message: `Alumno creado (simulación). PIN ${pin} — muéstralo una sola vez, no se puede volver a consultar.`,
+      };
+    },
+
+    /** The week's class catalog, sorted chronologically. */
+    async getSchedule(): Promise<ScheduledClass[]> {
+      await delay(300);
+      return [...getState().schedule].sort((a, b) =>
+        (a.date + a.startTime).localeCompare(b.date + b.startTime),
+      );
+    },
+
+    async confirmClassWithTeacher(classId: string): Promise<ConfirmTeacherResult> {
+      await delay(300);
+      const state = getState();
+      const cls = state.schedule.find((c) => c.classId === classId);
+      if (!cls) throw new Error(`NOT_FOUND: no existe la clase "${classId}"`);
+
+      if (cls.status === 'CANCELADA') {
+        return { ok: true, message: 'Esta clase está cancelada — no se puede confirmar (simulación).' };
+      }
+
+      setState((prev) => ({
+        ...prev,
+        schedule: prev.schedule.map((c) =>
+          c.classId === classId ? { ...c, status: 'CONFIRMADA' as const } : c,
+        ),
+      }));
+
+      return {
+        ok: true,
+        message: `Clase confirmada con ${cls.teacher} (simulación).`,
+      };
+    },
+
+    /** Cancelling by low turnout — cascades to cancel any active reservations for that class. */
+    async cancelClass(classId: string, reason: string): Promise<CancelClassResult> {
+      await delay(400);
+      const state = getState();
+      const cls = state.schedule.find((c) => c.classId === classId);
+      if (!cls) throw new Error(`NOT_FOUND: no existe la clase "${classId}"`);
+
+      if (cls.status === 'CANCELADA') {
+        return { ok: true, message: 'Esta clase ya estaba cancelada (simulación).' };
+      }
+
+      setState((prev) => ({
+        ...prev,
+        schedule: prev.schedule.map((c) =>
+          c.classId === classId ? { ...c, status: 'CANCELADA' as const, cancelReason: reason || null } : c,
+        ),
+        roster: prev.roster.map((r) =>
+          r.classId === classId && (r.status === 'CONFIRMED' || r.status === 'MISSING')
+            ? { ...r, status: 'CANCELLED' as const, cancelledAt: nowTime() }
+            : r,
+        ),
+      }));
+
+      return {
+        ok: true,
+        message: `Clase cancelada (simulación). Las reservas activas quedaron canceladas también.`,
+      };
+    },
+
+    /** Same-day operational snapshot — hours, students, occupancy, pending renewals. */
+    async getSummary(): Promise<ReceptionSummary> {
+      await delay(300);
+      const state = getState();
+      const active = state.schedule.filter((c) => c.status !== 'CANCELADA');
+      const today = active.filter((c) => c.date === DEMO_TODAY);
+      const totalOccupancy = active.reduce((acc, c) => acc + c.attendeeCount / c.capacity, 0);
+
+      return {
+        classesToday: today.length,
+        classesThisWeek: active.length,
+        hoursThisWeek: active.reduce((acc, c) => acc + hoursBetween(c.startTime, c.endTime), 0),
+        activeStudents: Object.values(state.students).filter((s) => s.status === 'ACTIVO').length,
+        checkInsToday: state.roster.filter(
+          (r) => r.classId === state.currentClass.classId && r.status === 'CHECKED_IN',
+        ).length,
+        pendingRenewals: state.renewalRequests.filter((r) => r.status === 'PENDIENTE').length,
+        averageOccupancy: active.length ? totalOccupancy / active.length : 0,
+      };
+    },
+
+    async getRoomBookings(): Promise<RoomBooking[]> {
+      await delay(250);
+      return [...getState().roomBookings].sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
+    },
+
+    /** Books a room outside the group schedule — a private lesson, a rehearsal, free practice. */
+    async createRoomBooking(input: CreateRoomBookingInput): Promise<CreateRoomBookingResult> {
+      await delay(400);
+      const state = getState();
+      const roomName = ROOMS.find((r) => r.roomId === input.roomId)?.name ?? input.roomId;
+
+      const booking: RoomBooking = {
+        bookingId: nextBookingId(state),
+        roomId: input.roomId,
+        roomName,
+        title: input.title,
+        teacher: input.teacher,
+        date: input.date,
+        startTime: input.startTime,
+        endTime: input.endTime,
+        type: input.type,
+        status: 'CONFIRMADA',
+      };
+
+      setState((prev) => ({ ...prev, roomBookings: [booking, ...prev.roomBookings] }));
+
+      return {
+        ok: true,
+        booking,
+        message: `Salón reservado (simulación): ${roomName}, ${input.date} ${input.startTime}–${input.endTime}.`,
+      };
+    },
+
+    async cancelRoomBooking(bookingId: string): Promise<{ ok: true }> {
+      await delay(300);
+      setState((prev) => ({
+        ...prev,
+        roomBookings: prev.roomBookings.map((b) =>
+          b.bookingId === bookingId ? { ...b, status: 'CANCELADA' as const } : b,
         ),
       }));
       return { ok: true };

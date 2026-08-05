@@ -320,3 +320,101 @@ export interface RequestRenewalResult {
   request: RenewalRequest;
   message: string;
 }
+
+/**
+ * The academy's schedule — the canonical class catalog reception manages.
+ * Distinct from a student's `upcomingClasses` (their own agenda): this is
+ * the operational view, one row per class occurrence for the week.
+ */
+export type ClassStatus = 'PROGRAMADA' | 'CONFIRMADA' | 'CANCELADA';
+
+export const CLASS_STATUS_LABELS: Record<ClassStatus, string> = {
+  PROGRAMADA: 'Programada',
+  CONFIRMADA: 'Confirmada con profesor',
+  CANCELADA: 'Cancelada',
+};
+
+export interface ScheduledClass extends DanceClassInfo {
+  status: ClassStatus;
+  cancelReason: string | null;
+}
+
+export interface ConfirmTeacherResult {
+  ok: true;
+  message: string;
+}
+
+export interface CancelClassResult {
+  ok: true;
+  message: string;
+}
+
+/** A same-day operational snapshot for the front desk — not the director's monthly view. */
+export interface ReceptionSummary {
+  classesToday: number;
+  classesThisWeek: number;
+  hoursThisWeek: number;
+  activeStudents: number;
+  checkInsToday: number;
+  pendingRenewals: number;
+  averageOccupancy: number; // 0-1, across non-cancelled scheduled classes
+}
+
+export interface CreateStudentInput {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  level: StudentLevel;
+  danceRole: DanceRole;
+  dataConsent: boolean;
+}
+
+export interface CreateStudentResult {
+  ok: true;
+  studentId: string;
+  pin: string;
+  message: string;
+}
+
+/**
+ * Room booking for anything outside the regular group schedule — a private
+ * lesson, a rehearsal, free practice. The "future capability" the director
+ * dashboard only gestures at (unused rooms → private lessons, rental) —
+ * here it's an actual reception-facing module, still with no real payment.
+ */
+export type RoomBookingType = 'PERSONALIZADA' | 'ENSAYO' | 'PRACTICA';
+
+export const ROOM_BOOKING_TYPE_LABELS: Record<RoomBookingType, string> = {
+  PERSONALIZADA: 'Clase personalizada',
+  ENSAYO: 'Ensayo',
+  PRACTICA: 'Práctica libre',
+};
+
+export interface RoomBooking {
+  bookingId: string;
+  roomId: string;
+  roomName: string;
+  title: string;
+  teacher: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  type: RoomBookingType;
+  status: 'CONFIRMADA' | 'CANCELADA';
+}
+
+export interface CreateRoomBookingInput {
+  roomId: string;
+  title: string;
+  teacher: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  type: RoomBookingType;
+}
+
+export interface CreateRoomBookingResult {
+  ok: true;
+  booking: RoomBooking;
+  message: string;
+}

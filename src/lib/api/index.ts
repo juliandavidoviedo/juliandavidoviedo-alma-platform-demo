@@ -14,5 +14,7 @@ export {
   ENGAGEMENT_LABELS,
   REGISTRATION_STATUS_LABELS,
   RENEWAL_METHOD_LABELS,
+  CLASS_STATUS_LABELS,
+  ROOM_BOOKING_TYPE_LABELS,
 } from './types';
 export type * from './types';
