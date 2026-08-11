@@ -1,4 +1,6 @@
 import type {
+  AttendanceIntentStatus,
+  AttentionItem,
   CancelClassResult,
   CheckInScenario,
   CheckInSimulateResult,
@@ -14,7 +16,6 @@ import type {
   ManualCheckInResult,
   PaymentMethod,
   ReceptionSummary,
-  RegistrationStatus,
   RenewalMethod,
   RenewalRequest,
   RequestRenewalResult,
@@ -27,7 +28,7 @@ import type {
   StudentSummary,
   UpcomingClassStatus,
 } from './types';
-import { DEMO_TODAY, DIRECTOR_DASHBOARD, JULIAN, ROOMS } from './mock-data';
+import { ATTENTION_ITEMS, DEMO_TODAY, DIRECTOR_DASHBOARD, JULIAN, ROOMS } from './mock-data';
 import { getState, setState, type DemoState } from './store';
 import type { DemoStudentRecord } from './mock-data';
 
@@ -54,6 +55,7 @@ function toStudentSummary(state: DemoState, record: DemoStudentRecord): StudentS
     firstName: record.firstName,
     level: record.level,
     danceRole: record.danceRole,
+    program: record.program,
     availableClasses: record.package?.balance ?? 0,
     package: record.package,
     packageHistory: record.packageHistory,
@@ -121,18 +123,18 @@ function bumpOwnUpcomingCount(record: DemoStudentRecord, classId: string, delta:
   return {
     ...record,
     upcomingClasses: record.upcomingClasses.map((cls) =>
-      cls.classId === classId ? { ...cls, attendeeCount: Math.max(0, cls.attendeeCount + delta) } : cls,
+      cls.classId === classId ? { ...cls, confirmedCount: Math.max(0, cls.confirmedCount + delta) } : cls,
     ),
   };
 }
 
 /**
  * Check-in — always today's live class (state.currentClass). If the student
- * already has a CONFIRMED (or MISSING) registration for it, it is upgraded
- * in place to CHECKED_IN — confirming ahead of time and then checking in is
+ * already has a CONFIRMED (or NO_SHOW) registration for it, it is upgraded
+ * in place to ATTENDED — confirming ahead of time and then checking in is
  * the same seat, not two events. With no prior registration, this creates a
- * walk-in CHECKED_IN entry directly, same as a student who never confirmed
- * and just showed up.
+ * walk-in ATTENDED entry directly, same as a student who never confirmed and
+ * just showed up.
  */
 function performCheckIn(
   state: DemoState,
@@ -142,7 +144,7 @@ function performCheckIn(
   const classId = state.currentClass.classId;
   const existing = findRegistration(state, studentId, classId);
 
-  if (existing?.status === 'CHECKED_IN') {
+  if (existing?.status === 'ATTENDED') {
     return {
       next: state,
       result: {
@@ -185,7 +187,7 @@ function performCheckIn(
   const nextRoster: ClassRegistration[] = existing
     ? state.roster.map((r) =>
         r.registrationId === existing.registrationId
-          ? { ...r, status: 'CHECKED_IN' as const, checkedInAt: time, consumptionType, remainingClasses }
+          ? { ...r, status: 'ATTENDED' as const, checkedInAt: time, consumptionType, remainingClasses }
           : r,
       )
     : [
@@ -195,7 +197,7 @@ function performCheckIn(
           classId,
           studentId,
           studentName: record.firstName,
-          status: 'CHECKED_IN' as const,
+          status: 'ATTENDED' as const,
           confirmedAt: null,
           checkedInAt: time,
           cancelledAt: null,
@@ -210,7 +212,7 @@ function performCheckIn(
     roster: nextRoster,
     currentClass: {
       ...state.currentClass,
-      attendeeCount: nextRoster.filter((r) => r.classId === classId && r.status === 'CHECKED_IN').length,
+      confirmedCount: nextRoster.filter((r) => r.classId === classId && r.status === 'ATTENDED').length,
     },
   };
 
@@ -237,19 +239,19 @@ function performConfirm(
   const record = requireStudent(state, studentId);
   const existing = findRegistration(state, studentId, classId);
 
-  if (existing?.status === 'CHECKED_IN') {
+  if (existing?.status === 'ATTENDED') {
     return {
       next: state,
       result: {
         ok: true,
-        status: 'CHECKED_IN',
+        status: 'ATTENDED',
         message: `${record.firstName} ya hizo check-in en esta clase — no hace falta confirmar (simulación).`,
       },
     };
   }
 
   const time = nowTime();
-  const holdsSeat = existing && (existing.status === 'CONFIRMED' || existing.status === 'MISSING');
+  const holdsSeat = existing && (existing.status === 'CONFIRMED' || existing.status === 'NO_SHOW');
 
   const nextRoster: ClassRegistration[] = existing
     ? state.roster.map((r) =>
@@ -310,19 +312,19 @@ function performCancel(
     };
   }
 
-  if (existing.status === 'CHECKED_IN') {
+  if (existing.status === 'ATTENDED') {
     return {
       next: state,
       result: {
         ok: true,
-        status: 'CHECKED_IN',
+        status: 'ATTENDED',
         message: `${record.firstName} ya hizo check-in — la clase ya se consumió (simulación).`,
       },
     };
   }
 
   const time = nowTime();
-  const heldSeat = existing.status === 'CONFIRMED' || existing.status === 'MISSING';
+  const heldSeat = existing.status === 'CONFIRMED' || existing.status === 'NO_SHOW';
   const nextRoster = state.roster.map((r) =>
     r.registrationId === existing.registrationId
       ? { ...r, status: 'CANCELLED' as const, cancelledAt: time }
@@ -503,6 +505,12 @@ export const api = {
       return getState().renewalRequests;
     },
 
+    /** Short, human-triaged list of students reception should look out for today. */
+    async getAttentionItems(): Promise<AttentionItem[]> {
+      await delay(220);
+      return ATTENTION_ITEMS;
+    },
+
     async resolveRenewalRequest(requestId: string): Promise<{ ok: true }> {
       await delay(300);
       setState((prev) => ({
@@ -526,6 +534,7 @@ export const api = {
         firstName: input.firstName,
         level: input.level,
         danceRole: input.danceRole,
+        program: 'ALMA_OPEN',
         status: 'ACTIVO',
         package: null,
         packageHistory: [],
@@ -606,7 +615,7 @@ export const api = {
           c.classId === classId ? { ...c, status: 'CANCELADA' as const, cancelReason: reason || null } : c,
         ),
         roster: prev.roster.map((r) =>
-          r.classId === classId && (r.status === 'CONFIRMED' || r.status === 'MISSING')
+          r.classId === classId && (r.status === 'CONFIRMED' || r.status === 'NO_SHOW')
             ? { ...r, status: 'CANCELLED' as const, cancelledAt: nowTime() }
             : r,
         ),
@@ -624,7 +633,7 @@ export const api = {
       const state = getState();
       const active = state.schedule.filter((c) => c.status !== 'CANCELADA');
       const today = active.filter((c) => c.date === DEMO_TODAY);
-      const totalOccupancy = active.reduce((acc, c) => acc + c.attendeeCount / c.capacity, 0);
+      const totalOccupancy = active.reduce((acc, c) => acc + c.confirmedCount / c.capacity, 0);
 
       return {
         classesToday: today.length,
@@ -632,7 +641,7 @@ export const api = {
         hoursThisWeek: active.reduce((acc, c) => acc + hoursBetween(c.startTime, c.endTime), 0),
         activeStudents: Object.values(state.students).filter((s) => s.status === 'ACTIVO').length,
         checkInsToday: state.roster.filter(
-          (r) => r.classId === state.currentClass.classId && r.status === 'CHECKED_IN',
+          (r) => r.classId === state.currentClass.classId && r.status === 'ATTENDED',
         ).length,
         pendingRenewals: state.renewalRequests.filter((r) => r.status === 'PENDIENTE').length,
         averageOccupancy: active.length ? totalOccupancy / active.length : 0,
@@ -702,7 +711,7 @@ export const api = {
     /**
      * Allowed up to 30 minutes before class — stated in the confirmation
      * copy, not enforced against real wall-clock time here (see the
-     * RegistrationStatus doc comment in types.ts for why).
+     * AttendanceIntentStatus doc comment in types.ts for why).
      */
     async cancelClass(classId: string, studentId: string = JULIAN.studentId): Promise<ConfirmAttendanceResult> {
       await delay(300);
@@ -796,4 +805,4 @@ export const api = {
   },
 };
 
-export type { DemoStudentRecord, PaymentMethod, RegistrationStatus };
+export type { DemoStudentRecord, PaymentMethod, AttendanceIntentStatus };

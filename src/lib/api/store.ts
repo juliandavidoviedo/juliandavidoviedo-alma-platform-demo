@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import type { ClassRegistration, DanceClassInfo, RenewalRequest, RoomBooking, ScheduledClass } from './types';
 import {
+  ACADEMY_SCHEDULE,
   CURRENT_CLASS,
   INITIAL_ROOM_BOOKINGS,
   INITIAL_ROSTER,
-  INITIAL_SCHEDULE,
   INITIAL_STUDENTS,
   type DemoStudentRecord,
 } from './mock-data';
@@ -35,7 +35,7 @@ function initialState(): DemoState {
     roster: INITIAL_ROSTER,
     currentClass: CURRENT_CLASS,
     renewalRequests: [],
-    schedule: INITIAL_SCHEDULE,
+    schedule: ACADEMY_SCHEDULE,
     roomBookings: INITIAL_ROOM_BOOKINGS,
   });
 }

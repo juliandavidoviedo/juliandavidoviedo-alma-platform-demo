@@ -1,14 +1,18 @@
 import type {
   AttendanceRecord,
+  ClassCategory,
   ClassRegistration,
+  ClassStatus,
   DanceClassInfo,
   DirectorDashboard,
   EngagementInfo,
   PackageInfo,
   PackagePurchase,
   PointsInfo,
+  ProgramName,
   Room,
   RoomBooking,
+  RoomOccupancyToday,
   ScheduledClass,
   StudentLevel,
   DanceRole,
@@ -19,25 +23,251 @@ import type {
  * absent" figure below is hand-computed against this date so the numbers
  * stay deterministic no matter when the demo is actually opened — the
  * director should see the same story in the room tomorrow as in tonight's
- * preview.
+ * preview. It also happens to be a Wednesday, which is Alma's busiest day
+ * in the real weekly schedule (see ACADEMY_SCHEDULE below) — useful for
+ * demonstrating several simultaneous classes across rooms.
  */
 export const DEMO_TODAY = '2026-08-05';
 
 /**
- * The academy: two floors, four rooms. Every class belongs to exactly one.
+ * Alma's four rooms. They have no official names yet, so these are neutral,
+ * temporary demo labels — not to be presented as the academy's real room
+ * names. The two large rooms' `capacity` is a conservative planning value
+ * for this demo ("capacidad operativa demo"), not a confirmed maximum.
  */
 export const ROOMS: Room[] = [
-  { roomId: 'SALA-1', name: 'Salón Principal', floor: 1, capacity: 20 },
-  { roomId: 'SALA-2', name: 'Salón Milonga', floor: 1, capacity: 24 },
-  { roomId: 'SALA-3', name: 'Estudio Norte', floor: 2, capacity: 16 },
-  { roomId: 'SALA-4', name: 'Estudio Sur', floor: 2, capacity: 12 },
+  { roomId: 'SALON-G1', name: 'Salón Grande 1', floor: 1, capacity: 20 },
+  { roomId: 'SALON-G2', name: 'Salón Grande 2', floor: 1, capacity: 20 },
+  { roomId: 'SALON-P1', name: 'Salón Pequeño 1', floor: 1, capacity: 12 },
+  { roomId: 'SALON-P2', name: 'Salón Pequeño 2', floor: 1, capacity: 12 },
 ];
+
+const ROOM_BY_ID: Record<string, Room> = Object.fromEntries(ROOMS.map((r) => [r.roomId, r]));
+
+/**
+ * Fictional teacher roster — real assignments have not been confirmed yet.
+ * Names are used directly on `DanceClassInfo.teacher`; kept in one place so
+ * tomorrow's real roster is a one-file swap, not a hunt through every class.
+ */
+const TEACHERS = {
+  laura: 'Laura',
+  diego: 'Diego',
+  sebastian: 'Sebastián',
+  fernanda: 'Fernanda',
+  paula: 'Paula',
+  rodrigo: 'Rodrigo',
+  mateo: 'Mateo',
+} as const;
+
+interface ClassSeed {
+  id: string;
+  name: string;
+  category: ClassCategory;
+  teacher: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  level: StudentLevel;
+  roomId: string;
+  confirmedCount: number;
+  cancelledCount?: number;
+  status?: ClassStatus;
+  cancelReason?: string | null;
+}
+
+function scheduledClass(seed: ClassSeed): ScheduledClass {
+  const room = ROOM_BY_ID[seed.roomId];
+  return {
+    classId: seed.id,
+    name: seed.name,
+    category: seed.category,
+    teacher: seed.teacher,
+    date: seed.date,
+    startTime: seed.startTime,
+    endTime: seed.endTime,
+    level: seed.level,
+    capacity: room.capacity,
+    confirmedCount: seed.confirmedCount,
+    cancelledCount: seed.cancelledCount ?? 0,
+    roomId: room.roomId,
+    roomName: room.name,
+    floor: room.floor,
+    status: seed.status ?? 'CONFIRMADA',
+    cancelReason: seed.cancelReason ?? null,
+  };
+}
+
+/**
+ * Alma's real weekly schedule (confirmed on-site, Aug 2026), one row per
+ * class occurrence for the week of DEMO_TODAY. Every class below matches an
+ * exact day/time from the source material — nothing here is invented.
+ * Teacher and room assignments ARE synthetic (not yet confirmed by Alma) and
+ * `confirmedCount`/`cancelledCount` are plausible demo numbers, not real
+ * attendance data.
+ *
+ * Alma runs simultaneous classes across its four rooms — this is why each
+ * occurrence is modeled independently with its own room/teacher/counts,
+ * instead of assuming one global "current class" for the whole academy.
+ */
+export const ACADEMY_SCHEDULE: ScheduledClass[] = [
+  // ---- Monday 2026-08-03
+  scheduledClass({
+    id: 'CL-20260803-1930-TECM', name: 'Técnica masculina', category: 'TANGO',
+    teacher: TEACHERS.diego, date: '2026-08-03', startTime: '19:30', endTime: '21:00',
+    level: 'INTERMEDIO', roomId: 'SALON-G1', confirmedCount: 15, cancelledCount: 1,
+  }),
+  scheduledClass({
+    id: 'CL-20260803-1930-SALB', name: 'Salsa básica', category: 'SALSA_BACHATA',
+    teacher: TEACHERS.mateo, date: '2026-08-03', startTime: '19:30', endTime: '21:00',
+    level: 'INICIAL', roomId: 'SALON-G2', confirmedCount: 16,
+  }),
+
+  // ---- Tuesday 2026-08-04
+  scheduledClass({
+    id: 'CL-20260804-0800-TGB1', name: 'Tango básico', category: 'TANGO',
+    teacher: TEACHERS.sebastian, date: '2026-08-04', startTime: '08:00', endTime: '09:30',
+    level: 'INICIAL', roomId: 'SALON-P1', confirmedCount: 8,
+  }),
+  scheduledClass({
+    id: 'CL-20260804-1800-BACI', name: 'Bachata intermedia', category: 'SALSA_BACHATA',
+    teacher: TEACHERS.mateo, date: '2026-08-04', startTime: '18:00', endTime: '19:30',
+    level: 'INTERMEDIO', roomId: 'SALON-G1', confirmedCount: 10, cancelledCount: 1,
+  }),
+  scheduledClass({
+    id: 'CL-20260804-1830-TECF1', name: 'Técnica femenina', category: 'TANGO',
+    teacher: TEACHERS.laura, date: '2026-08-04', startTime: '18:30', endTime: '20:00',
+    level: 'INTERMEDIO', roomId: 'SALON-G2', confirmedCount: 17,
+  }),
+  scheduledClass({
+    id: 'CL-20260804-1930-BALL', name: 'Ballet adulto', category: 'FUNDAMENTACION',
+    teacher: TEACHERS.fernanda, date: '2026-08-04', startTime: '19:30', endTime: '21:00',
+    level: 'INTERMEDIO', roomId: 'SALON-P1', confirmedCount: 10,
+  }),
+  scheduledClass({
+    id: 'CL-20260804-1930-JAZI', name: 'Jazz intermedio', category: 'FUNDAMENTACION',
+    teacher: TEACHERS.rodrigo, date: '2026-08-04', startTime: '19:30', endTime: '21:00',
+    level: 'INTERMEDIO', roomId: 'SALON-P2', confirmedCount: 9, cancelledCount: 1,
+  }),
+
+  // ---- Wednesday 2026-08-05 (DEMO_TODAY)
+  scheduledClass({
+    id: 'CL-20260805-0800-YOGA', name: 'Yoga y pilates', category: 'FUNDAMENTACION',
+    teacher: TEACHERS.paula, date: '2026-08-05', startTime: '08:00', endTime: '09:30',
+    level: 'INICIAL', roomId: 'SALON-P1', confirmedCount: 11,
+  }),
+  scheduledClass({
+    id: 'CL-20260805-1700-ACON', name: 'Acondicionamiento y stretching', category: 'FUNDAMENTACION',
+    teacher: TEACHERS.paula, date: '2026-08-05', startTime: '17:00', endTime: '18:30',
+    level: 'INICIAL', roomId: 'SALON-P2', confirmedCount: 7,
+  }),
+  scheduledClass({
+    id: 'CL-20260805-1800-TSAL', name: 'Tango salón', category: 'TANGO',
+    teacher: TEACHERS.laura, date: '2026-08-05', startTime: '18:00', endTime: '19:30',
+    level: 'INTERMEDIO', roomId: 'SALON-G1', confirmedCount: 14, cancelledCount: 1,
+  }),
+  scheduledClass({
+    id: 'CL-20260805-1930-TGB2', name: 'Tango básico', category: 'TANGO',
+    teacher: TEACHERS.diego, date: '2026-08-05', startTime: '19:30', endTime: '21:00',
+    level: 'INICIAL', roomId: 'SALON-G1', confirmedCount: 6, cancelledCount: 2,
+  }),
+  scheduledClass({
+    id: 'CL-20260805-1930-BACB', name: 'Bachata básica', category: 'SALSA_BACHATA',
+    teacher: TEACHERS.mateo, date: '2026-08-05', startTime: '19:30', endTime: '21:00',
+    level: 'INICIAL', roomId: 'SALON-G2', confirmedCount: 9,
+  }),
+  scheduledClass({
+    id: 'CL-20260805-1930-CONT', name: 'Contemporáneo', category: 'FUNDAMENTACION',
+    teacher: TEACHERS.rodrigo, date: '2026-08-05', startTime: '19:30', endTime: '21:00',
+    level: 'INTERMEDIO', roomId: 'SALON-P2', confirmedCount: 5, cancelledCount: 1,
+  }),
+
+  // ---- Thursday 2026-08-06
+  scheduledClass({
+    id: 'CL-20260806-0800-BACB2', name: 'Bachata básica', category: 'SALSA_BACHATA',
+    teacher: TEACHERS.mateo, date: '2026-08-06', startTime: '08:00', endTime: '09:30',
+    level: 'INICIAL', roomId: 'SALON-P2', confirmedCount: 6,
+  }),
+  scheduledClass({
+    id: 'CL-20260806-1600-TMAY', name: 'Tango mayor', category: 'TANGO',
+    teacher: TEACHERS.sebastian, date: '2026-08-06', startTime: '16:00', endTime: '17:30',
+    level: 'INTERMEDIO', roomId: 'SALON-P2', confirmedCount: 9,
+  }),
+  scheduledClass({
+    id: 'CL-20260806-1700-TECF2', name: 'Técnica femenina', category: 'TANGO',
+    teacher: TEACHERS.laura, date: '2026-08-06', startTime: '17:00', endTime: '18:30',
+    level: 'INTERMEDIO', roomId: 'SALON-G2', confirmedCount: 12, cancelledCount: 2,
+  }),
+  scheduledClass({
+    id: 'CL-20260806-1800-TNUE', name: 'Tango nuevo', category: 'TANGO',
+    teacher: TEACHERS.diego, date: '2026-08-06', startTime: '18:00', endTime: '19:30',
+    level: 'INTERMEDIO', roomId: 'SALON-G1', confirmedCount: 11, cancelledCount: 1,
+  }),
+  scheduledClass({
+    id: 'CL-20260806-1830-TGB3', name: 'Tango básico', category: 'TANGO',
+    teacher: TEACHERS.laura, date: '2026-08-06', startTime: '18:30', endTime: '20:00',
+    level: 'INICIAL', roomId: 'SALON-P1', confirmedCount: 7,
+  }),
+
+  // ---- Friday 2026-08-07
+  scheduledClass({
+    id: 'CL-20260807-0800-ACON2', name: 'Acondicionamiento y stretching', category: 'FUNDAMENTACION',
+    teacher: TEACHERS.paula, date: '2026-08-07', startTime: '08:00', endTime: '09:30',
+    level: 'INICIAL', roomId: 'SALON-P2', confirmedCount: 6,
+  }),
+  scheduledClass({
+    id: 'CL-20260807-1700-JAZM', name: 'Jazz multinivel', category: 'FUNDAMENTACION',
+    teacher: TEACHERS.rodrigo, date: '2026-08-07', startTime: '17:00', endTime: '18:30',
+    level: 'INTERMEDIO', roomId: 'SALON-P1', confirmedCount: 8,
+  }),
+  scheduledClass({
+    id: 'CL-20260807-1800-SALI', name: 'Salsa intermedia', category: 'SALSA_BACHATA',
+    teacher: TEACHERS.mateo, date: '2026-08-07', startTime: '18:00', endTime: '19:30',
+    level: 'INTERMEDIO', roomId: 'SALON-G1', confirmedCount: 12,
+  }),
+  scheduledClass({
+    id: 'CL-20260807-1930-JAZB', name: 'Jazz básico', category: 'FUNDAMENTACION',
+    teacher: TEACHERS.fernanda, date: '2026-08-07', startTime: '19:30', endTime: '21:00',
+    level: 'INICIAL', roomId: 'SALON-P1', confirmedCount: 9,
+  }),
+
+  // ---- Saturday 2026-08-08
+  scheduledClass({
+    id: 'CL-20260808-1500-TINT', name: 'Tango intermedio', category: 'TANGO',
+    teacher: TEACHERS.diego, date: '2026-08-08', startTime: '15:00', endTime: '16:30',
+    level: 'INTERMEDIO', roomId: 'SALON-G1', confirmedCount: 13,
+  }),
+  scheduledClass({
+    id: 'CL-20260808-1700-MILO', name: 'Milonga', category: 'TANGO',
+    teacher: TEACHERS.laura, date: '2026-08-08', startTime: '17:00', endTime: '18:30',
+    level: 'INTERMEDIO', roomId: 'SALON-G2', confirmedCount: 19, cancelledCount: 1,
+  }),
+];
+
+/** Today's live class for Check-in / Reception's roster / the Student "clase de hoy" card. */
+export const CURRENT_CLASS: DanceClassInfo =
+  ACADEMY_SCHEDULE.find((c) => c.classId === 'CL-20260805-1800-TSAL')!;
+
+const TANGO_BASICO_WED = ACADEMY_SCHEDULE.find((c) => c.classId === 'CL-20260805-1930-TGB2')!;
+const MILONGA_SAT = ACADEMY_SCHEDULE.find((c) => c.classId === 'CL-20260808-1700-MILO')!;
+
+/** Next week's occurrences of Julián's own classes — same slot, one week later. */
+const TANGO_SALON_NEXT_WEEK: DanceClassInfo = scheduledClass({
+  id: 'CL-20260812-1800-TSAL', name: 'Tango salón', category: 'TANGO',
+  teacher: TEACHERS.laura, date: '2026-08-12', startTime: '18:00', endTime: '19:30',
+  level: 'INTERMEDIO', roomId: 'SALON-G1', confirmedCount: 9,
+});
+const BACHATA_INTERMEDIA_NEXT_WEEK: DanceClassInfo = scheduledClass({
+  id: 'CL-20260811-1800-BACI', name: 'Bachata intermedia', category: 'SALSA_BACHATA',
+  teacher: TEACHERS.mateo, date: '2026-08-11', startTime: '18:00', endTime: '19:30',
+  level: 'INTERMEDIO', roomId: 'SALON-G1', confirmedCount: 8,
+});
 
 export interface DemoStudentRecord {
   studentId: string;
   firstName: string;
   level: StudentLevel;
   danceRole: DanceRole;
+  program: ProgramName;
   status: 'ACTIVO' | 'INACTIVO';
   package: PackageInfo | null;
   packageHistory: PackagePurchase[];
@@ -48,23 +278,6 @@ export interface DemoStudentRecord {
   attendanceHistory: AttendanceRecord[];
 }
 
-/** Today's live class — the one Check-in, Reception's roster and the
- * Student "clase de hoy" card all share. */
-export const CURRENT_CLASS: DanceClassInfo = {
-  classId: 'CL-20260805-1900-TG1',
-  name: 'Tango salón intermedio',
-  teacher: 'Laura',
-  date: DEMO_TODAY,
-  startTime: '19:00',
-  endTime: '20:30',
-  level: 'INTERMEDIO',
-  capacity: 20,
-  attendeeCount: 2,
-  roomId: 'SALA-1',
-  roomName: 'Salón Principal',
-  floor: 1,
-};
-
 /**
  * Julián is the demo's protagonist student — every screen in the "Alumno"
  * story and most of the reception flow center on him.
@@ -74,6 +287,7 @@ export const JULIAN: DemoStudentRecord = {
   firstName: 'Julián',
   level: 'INTERMEDIO',
   danceRole: 'SEGUIDOR',
+  program: 'ALMA_PRO',
   status: 'ACTIVO',
   package: {
     packageId: 'PQ-0187',
@@ -89,7 +303,7 @@ export const JULIAN: DemoStudentRecord = {
       name: 'Paquete 8 clases',
       purchaseDate: '2026-07-15',
       expiresOn: '2026-09-14',
-      paymentMethod: 'TRANSFERENCIA',
+      paymentMethod: 'QR',
       amount: 280_000,
       classesIncluded: 8,
       classesRemaining: 5,
@@ -120,55 +334,12 @@ export const JULIAN: DemoStudentRecord = {
     daysSinceLastAttendance: 8,
     noShowCount: 0,
   },
-  upcomingClasses: [
-    {
-      classId: 'CL-20260806-1900-TG1',
-      name: 'Tango salón intermedio',
-      teacher: 'Laura',
-      date: '2026-08-06',
-      startTime: '19:00',
-      endTime: '20:30',
-      level: 'INTERMEDIO',
-      capacity: 20,
-      attendeeCount: 12,
-      roomId: 'SALA-1',
-      roomName: 'Salón Principal',
-      floor: 1,
-    },
-    {
-      classId: 'CL-20260808-1830-TG2',
-      name: 'Práctica guiada',
-      teacher: 'Diego',
-      date: '2026-08-08',
-      startTime: '18:30',
-      endTime: '19:30',
-      level: 'INTERMEDIO',
-      capacity: 16,
-      attendeeCount: 9,
-      roomId: 'SALA-3',
-      roomName: 'Estudio Norte',
-      floor: 2,
-    },
-    {
-      classId: 'CL-20260811-1900-TG1',
-      name: 'Tango salón intermedio',
-      teacher: 'Laura',
-      date: '2026-08-11',
-      startTime: '19:00',
-      endTime: '20:30',
-      level: 'INTERMEDIO',
-      capacity: 20,
-      attendeeCount: 7,
-      roomId: 'SALA-1',
-      roomName: 'Salón Principal',
-      floor: 1,
-    },
-  ],
+  upcomingClasses: [MILONGA_SAT, TANGO_SALON_NEXT_WEEK, BACHATA_INTERMEDIA_NEXT_WEEK],
   attendanceHistory: [
     {
       attendanceId: 'AS-001198',
       date: '2026-07-28',
-      className: 'Tango salón intermedio',
+      className: 'Tango salón',
       teacher: 'Laura',
       consumptionType: 'PAQUETE',
       points: 10,
@@ -176,7 +347,7 @@ export const JULIAN: DemoStudentRecord = {
     {
       attendanceId: 'AS-001181',
       date: '2026-07-21',
-      className: 'Práctica guiada',
+      className: 'Tango nuevo',
       teacher: 'Diego',
       consumptionType: 'PAQUETE',
       points: 10,
@@ -184,7 +355,7 @@ export const JULIAN: DemoStudentRecord = {
     {
       attendanceId: 'AS-001164',
       date: '2026-07-14',
-      className: 'Tango salón intermedio',
+      className: 'Tango salón',
       teacher: 'Laura',
       consumptionType: 'PAQUETE',
       points: 10,
@@ -192,7 +363,7 @@ export const JULIAN: DemoStudentRecord = {
     {
       attendanceId: 'AS-001149',
       date: '2026-07-09',
-      className: 'Milonga social',
+      className: 'Milonga',
       teacher: 'Laura',
       consumptionType: 'PAQUETE',
       points: 15,
@@ -200,7 +371,7 @@ export const JULIAN: DemoStudentRecord = {
     {
       attendanceId: 'AS-001132',
       date: '2026-07-02',
-      className: 'Tango salón intermedio',
+      className: 'Tango salón',
       teacher: 'Laura',
       consumptionType: 'PAQUETE',
       points: 10,
@@ -214,6 +385,7 @@ export const CAMILA: DemoStudentRecord = {
   firstName: 'Camila',
   level: 'AVANZADO',
   danceRole: 'LIDER',
+  program: 'ALMA_EVOLUTION',
   status: 'ACTIVO',
   package: {
     packageId: 'PQ-0233',
@@ -259,17 +431,18 @@ export const ANDRES: DemoStudentRecord = {
   firstName: 'Andrés',
   level: 'INICIAL',
   danceRole: 'AMBOS',
+  program: 'ALMA_OPEN',
   status: 'ACTIVO',
   package: null,
   packageHistory: [
     {
       packageId: 'PQ-0055',
-      name: 'Clase suelta',
+      name: 'Alma Open (mensual)',
       purchaseDate: '2026-06-10',
       expiresOn: '2026-07-10',
       paymentMethod: 'EFECTIVO',
-      amount: 40_000,
-      classesIncluded: 1,
+      amount: 220_000,
+      classesIncluded: 999,
       classesRemaining: 0,
     },
   ],
@@ -299,10 +472,9 @@ export const INITIAL_STUDENTS: Record<string, DemoStudentRecord> = {
 };
 
 /**
- * Today's roster for CURRENT_CLASS — the richer replacement for a flat
- * "who's here" list. Valentina and Mariana are the same two names used in
- * the director's at-risk list: Valentina confirmed and didn't show, Mariana
- * cancelled in time. Reinforces one story instead of introducing new cast.
+ * Today's roster for CURRENT_CLASS (Tango salón, Wed 6:00 PM). Valentina and
+ * Mariana are the same two names used in the director's at-risk list:
+ * Valentina confirmed and did not show (NO_SHOW), Mariana cancelled in time.
  */
 export const INITIAL_ROSTER: ClassRegistration[] = [
   {
@@ -310,9 +482,9 @@ export const INITIAL_ROSTER: ClassRegistration[] = [
     classId: CURRENT_CLASS.classId,
     studentId: CAMILA.studentId,
     studentName: 'Camila',
-    status: 'CHECKED_IN',
-    confirmedAt: '18:40',
-    checkedInAt: '19:02',
+    status: 'ATTENDED',
+    confirmedAt: '17:40',
+    checkedInAt: '18:02',
     cancelledAt: null,
     consumptionType: 'PAQUETE',
     remainingClasses: CAMILA.package?.balance ?? 0,
@@ -322,9 +494,9 @@ export const INITIAL_ROSTER: ClassRegistration[] = [
     classId: CURRENT_CLASS.classId,
     studentId: ANDRES.studentId,
     studentName: 'Andrés',
-    status: 'CHECKED_IN',
+    status: 'ATTENDED',
     confirmedAt: null,
-    checkedInAt: '19:05',
+    checkedInAt: '18:05',
     cancelledAt: null,
     consumptionType: 'SIN_PAQUETE',
     remainingClasses: 0,
@@ -334,8 +506,8 @@ export const INITIAL_ROSTER: ClassRegistration[] = [
     classId: CURRENT_CLASS.classId,
     studentId: 'ST-VALENTINA',
     studentName: 'Valentina',
-    status: 'MISSING',
-    confirmedAt: '17:50',
+    status: 'NO_SHOW',
+    confirmedAt: '16:50',
     checkedInAt: null,
     cancelledAt: null,
     consumptionType: null,
@@ -347,154 +519,11 @@ export const INITIAL_ROSTER: ClassRegistration[] = [
     studentId: 'ST-MARIANA',
     studentName: 'Mariana',
     status: 'CANCELLED',
-    confirmedAt: '12:10',
+    confirmedAt: '11:10',
     checkedInAt: null,
-    cancelledAt: '18:20',
+    cancelledAt: '17:20',
     consumptionType: null,
     remainingClasses: null,
-  },
-];
-
-/**
- * The week's schedule — the operational catalog reception manages: confirm
- * with the teacher, or cancel for low turnout. `attendeeCount` here is a
- * static snapshot, same simplification as the rest of the demo's "aforo"
- * (see bumpOwnUpcomingCount in mock-api.ts) — it does not stay in sync with
- * a given student's own reservation count on their personal agenda.
- */
-export const INITIAL_SCHEDULE: ScheduledClass[] = [
-  {
-    ...CURRENT_CLASS,
-    status: 'CONFIRMADA',
-    cancelReason: null,
-  },
-  {
-    classId: 'CL-20260806-1900-TG1',
-    name: 'Tango salón intermedio',
-    teacher: 'Laura',
-    date: '2026-08-06',
-    startTime: '19:00',
-    endTime: '20:30',
-    level: 'INTERMEDIO',
-    capacity: 20,
-    attendeeCount: 12,
-    roomId: 'SALA-1',
-    roomName: 'Salón Principal',
-    floor: 1,
-    status: 'CONFIRMADA',
-    cancelReason: null,
-  },
-  {
-    classId: 'CL-20260806-1800-TB1',
-    name: 'Tango básico',
-    teacher: 'Diego',
-    date: '2026-08-06',
-    startTime: '18:00',
-    endTime: '19:00',
-    level: 'INICIAL',
-    capacity: 18,
-    attendeeCount: 3,
-    roomId: 'SALA-4',
-    roomName: 'Estudio Sur',
-    floor: 2,
-    status: 'PROGRAMADA',
-    cancelReason: null,
-  },
-  {
-    classId: 'CL-20260807-1900-MI1',
-    name: 'Milonga social',
-    teacher: 'Laura',
-    date: '2026-08-07',
-    startTime: '19:00',
-    endTime: '21:00',
-    level: 'INTERMEDIO',
-    capacity: 24,
-    attendeeCount: 19,
-    roomId: 'SALA-2',
-    roomName: 'Salón Milonga',
-    floor: 1,
-    status: 'CONFIRMADA',
-    cancelReason: null,
-  },
-  {
-    classId: 'CL-20260808-1100-TP1',
-    name: 'Tap',
-    teacher: 'Camila',
-    date: '2026-08-08',
-    startTime: '11:00',
-    endTime: '12:00',
-    level: 'INICIAL',
-    capacity: 16,
-    attendeeCount: 5,
-    roomId: 'SALA-3',
-    roomName: 'Estudio Norte',
-    floor: 2,
-    status: 'PROGRAMADA',
-    cancelReason: null,
-  },
-  {
-    classId: 'CL-20260808-1830-TG2',
-    name: 'Práctica guiada',
-    teacher: 'Diego',
-    date: '2026-08-08',
-    startTime: '18:30',
-    endTime: '19:30',
-    level: 'INTERMEDIO',
-    capacity: 16,
-    attendeeCount: 9,
-    roomId: 'SALA-3',
-    roomName: 'Estudio Norte',
-    floor: 2,
-    status: 'PROGRAMADA',
-    cancelReason: null,
-  },
-  {
-    classId: 'CL-20260809-1000-TE1',
-    name: 'Tango Escenario',
-    teacher: 'Laura',
-    date: '2026-08-09',
-    startTime: '10:00',
-    endTime: '13:00',
-    level: 'AVANZADO',
-    capacity: 20,
-    attendeeCount: 9,
-    roomId: 'SALA-1',
-    roomName: 'Salón Principal',
-    floor: 1,
-    status: 'CONFIRMADA',
-    cancelReason: null,
-  },
-  {
-    classId: 'CL-20260810-2000-SA1',
-    name: 'Salsa',
-    teacher: 'Camila',
-    date: '2026-08-10',
-    startTime: '20:00',
-    endTime: '21:00',
-    level: 'INICIAL',
-    capacity: 24,
-    attendeeCount: 14,
-    roomId: 'SALA-2',
-    roomName: 'Salón Milonga',
-    floor: 1,
-    status: 'PROGRAMADA',
-    cancelReason: null,
-  },
-  {
-    classId: 'CL-20260811-1900-TG1',
-    name: 'Tango salón intermedio',
-    teacher: 'Laura',
-    date: '2026-08-11',
-    startTime: '19:00',
-    endTime: '20:30',
-    level: 'INTERMEDIO',
-    capacity: 20,
-    attendeeCount: 7,
-    roomId: 'SALA-1',
-    roomName: 'Salón Principal',
-    floor: 1,
-    status: 'PROGRAMADA',
-    cancelReason: null,
   },
 ];
 
@@ -502,22 +531,22 @@ export const INITIAL_SCHEDULE: ScheduledClass[] = [
 export const INITIAL_ROOM_BOOKINGS: RoomBooking[] = [
   {
     bookingId: 'RB-0001',
-    roomId: 'SALA-4',
-    roomName: 'Estudio Sur',
+    roomId: 'SALON-P2',
+    roomName: 'Salón Pequeño 2',
     title: 'Clase personalizada — preparación de boda',
-    teacher: 'Laura',
+    teacher: TEACHERS.laura,
     date: '2026-08-06',
-    startTime: '17:00',
-    endTime: '18:00',
+    startTime: '20:00',
+    endTime: '21:00',
     type: 'PERSONALIZADA',
     status: 'CONFIRMADA',
   },
   {
     bookingId: 'RB-0002',
-    roomId: 'SALA-3',
-    roomName: 'Estudio Norte',
+    roomId: 'SALON-P1',
+    roomName: 'Salón Pequeño 1',
     title: 'Ensayo grupo de exhibición',
-    teacher: 'Diego',
+    teacher: TEACHERS.diego,
     date: '2026-08-09',
     startTime: '14:00',
     endTime: '15:00',
@@ -525,6 +554,25 @@ export const INITIAL_ROOM_BOOKINGS: RoomBooking[] = [
     status: 'CONFIRMADA',
   },
 ];
+
+/** Today's classes, chronological — the operational dataset the director and reception both read. */
+const CLASSES_TODAY: ScheduledClass[] = ACADEMY_SCHEDULE
+  .filter((c) => c.date === DEMO_TODAY)
+  .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+/** Room occupancy rollup for today, computed once from CLASSES_TODAY — not a live poll. */
+const ROOM_OCCUPANCY_TODAY: RoomOccupancyToday[] = ROOMS.map((room) => {
+  const classes = CLASSES_TODAY.filter((c) => c.roomId === room.roomId);
+  const peak = classes.reduce((max, c) => Math.max(max, c.confirmedCount / c.capacity), 0);
+  return {
+    roomId: room.roomId,
+    name: room.name,
+    comfortableCapacity: room.capacity,
+    classesToday: classes.length,
+    peakOccupancy: peak,
+    nearCapacity: peak >= 0.85,
+  };
+});
 
 /**
  * Director dashboard fixture (Iván). Plausible, round, clearly simulated
@@ -561,58 +609,18 @@ export const DIRECTOR_DASHBOARD: DirectorDashboard = {
       availableClasses: 1,
     },
   ],
-  occupancyByClass: [
-    {
-      className: 'Milonga social',
-      teacher: 'Laura',
-      roomName: 'Salón Milonga',
-      floor: 1,
-      averageAttendees: 19,
-      capacity: 20,
-      occupancy: 0.95,
-    },
-    {
-      className: 'Tango salón intermedio',
-      teacher: 'Laura',
-      roomName: 'Salón Principal',
-      floor: 1,
-      averageAttendees: 16,
-      capacity: 20,
-      occupancy: 0.8,
-    },
-    {
-      className: 'Práctica guiada',
-      teacher: 'Diego',
-      roomName: 'Estudio Norte',
-      floor: 2,
-      averageAttendees: 9,
-      capacity: 16,
-      occupancy: 0.56,
-    },
-    {
-      className: 'Tango básico',
-      teacher: 'Diego',
-      roomName: 'Estudio Sur',
-      floor: 2,
-      averageAttendees: 11,
-      capacity: 18,
-      occupancy: 0.61,
-    },
-  ],
-  /**
-   * A snapshot, not a live poll — floor 1 busy with class, floor 2 quieter.
-   * Sets up the "unused rooms, future capability" framing without wiring
-   * anything to real time.
-   */
-  rooms: [
-    { roomId: 'SALA-1', name: 'Salón Principal', floor: 1, capacity: 20, status: 'OCUPADO', currentClassName: 'Tango salón intermedio' },
-    { roomId: 'SALA-2', name: 'Salón Milonga', floor: 1, capacity: 24, status: 'OCUPADO', currentClassName: 'Milonga social' },
-    { roomId: 'SALA-3', name: 'Estudio Norte', floor: 2, capacity: 16, status: 'LIBRE', currentClassName: null },
-    { roomId: 'SALA-4', name: 'Estudio Sur', floor: 2, capacity: 12, status: 'LIBRE', currentClassName: null },
-  ],
+  classesToday: CLASSES_TODAY,
+  roomOccupancyToday: ROOM_OCCUPANCY_TODAY,
   engagementBreakdown: { creciendo: 92, estable: 24, enRiesgo: 12 },
   insights: [
-    '9 paquetes vencen en los próximos 7 días — contactar antes del viernes evita que se venzan en silencio.',
-    '3 alumnos llevan 21 días o más sin venir con clases disponibles: hoy es un buen momento para escribirles.',
+    `Salón Pequeño 1 tiene 11 confirmados para un cupo cómodo de 12 en Yoga y pilates de esta mañana — casi al tope.`,
+    `Tango básico tiene solo 6 confirmaciones para la clase de las ${TANGO_BASICO_WED.startTime} de hoy — vale la pena avisar a los alumnos inscritos.`,
   ],
 };
+
+/** Students reception should look out for today — a short, human-triaged list, not a score. */
+export const ATTENTION_ITEMS = [
+  { studentId: ANDRES.studentId, name: 'Andrés', reason: 'Sin plan activo · 24 días sin venir' },
+  { studentId: 'ST-VALENTINA', name: 'Valentina', reason: 'No llegó a su última clase confirmada' },
+  { studentId: CAMILA.studentId, name: 'Camila', reason: 'Paquete vence en 23 días · sin renovación en curso' },
+];

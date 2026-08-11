@@ -8,13 +8,15 @@
  */
 export { api } from './mock-api';
 export { useDemoState, resetState } from './store';
-export { JULIAN, ROOMS } from './mock-data';
+export { JULIAN, ROOMS, DEMO_TODAY } from './mock-data';
 export {
   PAYMENT_METHOD_LABELS,
   ENGAGEMENT_LABELS,
-  REGISTRATION_STATUS_LABELS,
+  ATTENDANCE_INTENT_LABELS,
   RENEWAL_METHOD_LABELS,
   CLASS_STATUS_LABELS,
   ROOM_BOOKING_TYPE_LABELS,
+  PROGRAM_LABELS,
+  CATEGORY_LABELS,
 } from './types';
 export type * from './types';

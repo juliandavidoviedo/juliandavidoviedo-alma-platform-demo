@@ -28,10 +28,43 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   EFECTIVO: 'Efectivo',
   TRANSFERENCIA: 'Transferencia',
   TARJETA: 'Tarjeta',
-  QR: 'QR',
+  QR: 'QR Davivienda',
   OTRO: 'Otro',
 };
 
+/**
+ * The academy's current commercial offer, informational only — this demo
+ * never processes payments. Newer students typically start on the monthly
+ * Alma Open plan; the others are program tracks tied to a package purchase.
+ */
+export type ProgramName = 'ALMA_OPEN' | 'ALMA_KIDS' | 'ALMA_EVOLUTION' | 'ALMA_PRO' | 'ALMA_PROJECT';
+
+export const PROGRAM_LABELS: Record<ProgramName, string> = {
+  ALMA_OPEN: 'Alma Open',
+  ALMA_KIDS: 'Alma Kids',
+  ALMA_EVOLUTION: 'Alma Evolution',
+  ALMA_PRO: 'Alma Pro',
+  ALMA_PROJECT: 'Alma Project · Universo Tango',
+};
+
+/**
+ * Class category, used for grouping the operational schedule. Matches how
+ * Alma itself groups its offering (tango technique/social vs. the broader
+ * dance-fundamentals catalog vs. salsa/bachata) — not a predictive label.
+ */
+export type ClassCategory = 'TANGO' | 'FUNDAMENTACION' | 'SALSA_BACHATA';
+
+export const CATEGORY_LABELS: Record<ClassCategory, string> = {
+  TANGO: 'Tango',
+  FUNDAMENTACION: 'Fundamentación',
+  SALSA_BACHATA: 'Salsa y bachata',
+};
+
+/**
+ * Rooms use neutral, temporary demo labels — Alma has not assigned official
+ * names yet. The two large rooms' `capacity` is a conservative planning
+ * value for this demo ("capacidad operativa demo"), not a stated maximum.
+ */
 export interface Room {
   roomId: string;
   name: string;
@@ -92,13 +125,15 @@ export interface EngagementInfo {
 export interface DanceClassInfo {
   classId: string;
   name: string;
+  category: ClassCategory;
   teacher: string;
   date: string; // ISO date
   startTime: string; // "19:00"
   endTime: string;
   level: StudentLevel;
-  capacity: number;
-  attendeeCount: number;
+  capacity: number; // "comfortable" / operational capacity, not a hard maximum
+  confirmedCount: number;
+  cancelledCount: number;
   roomId: string;
   roomName: string;
   floor: 1 | 2;
@@ -118,6 +153,7 @@ export interface StudentSummary {
   firstName: string;
   level: StudentLevel;
   danceRole: DanceRole;
+  program: ProgramName;
   availableClasses: number;
   package: PackageInfo | null;
   packageHistory: PackagePurchase[];
@@ -138,19 +174,26 @@ export interface SearchResult {
 }
 
 /**
- * Attendance lifecycle for one class occurrence. Confirmation reserves an
- * expected seat; check-in consumes the class; cancellation is allowed up to
- * 30 minutes before the class starts (communicated in copy — the demo does
- * not gate this against real wall-clock time, since that would make a fixed
- * demo date fragile against whenever it's actually opened).
+ * Attendance INTENT vs. RESULT, kept as explicitly separate concepts —
+ * confirming never means the student physically showed up:
+ *
+ *   CONFIRMED = student intends to attend (self-managed, up to T-30)
+ *   CANCELLED = student cancelled before class (self-managed, up to T-30)
+ *   ATTENDED  = physically validated later (check-in, manual or QR)
+ *   NO_SHOW   = confirmed/expected but did not attend
+ *
+ * Cancellation is allowed up to 30 minutes before the class starts
+ * (communicated in copy — the demo does not gate this against real
+ * wall-clock time, since that would make a fixed demo date fragile against
+ * whenever it's actually opened).
  */
-export type RegistrationStatus = 'CONFIRMED' | 'CHECKED_IN' | 'CANCELLED' | 'MISSING';
+export type AttendanceIntentStatus = 'CONFIRMED' | 'CANCELLED' | 'ATTENDED' | 'NO_SHOW';
 
-export const REGISTRATION_STATUS_LABELS: Record<RegistrationStatus, string> = {
+export const ATTENDANCE_INTENT_LABELS: Record<AttendanceIntentStatus, string> = {
   CONFIRMED: 'Confirmado',
-  CHECKED_IN: 'Llegó',
   CANCELLED: 'Canceló',
-  MISSING: 'No llegó',
+  ATTENDED: 'Asistió',
+  NO_SHOW: 'No asistió',
 };
 
 export interface ClassRegistration {
@@ -158,12 +201,12 @@ export interface ClassRegistration {
   classId: string;
   studentId: string;
   studentName: string;
-  status: RegistrationStatus;
+  status: AttendanceIntentStatus;
   confirmedAt: string | null; // "18:40"
   checkedInAt: string | null;
   cancelledAt: string | null;
-  consumptionType: ConsumptionType | null; // set once checked in
-  remainingClasses: number | null; // set once checked in
+  consumptionType: ConsumptionType | null; // set once attended
+  remainingClasses: number | null; // set once attended
 }
 
 export interface ClassRoster {
@@ -173,17 +216,17 @@ export interface ClassRoster {
 
 export interface TodayClassStatus {
   danceClass: DanceClassInfo;
-  registrationStatus: RegistrationStatus | null; // null = not registered at all
+  registrationStatus: AttendanceIntentStatus | null; // null = no intent registered at all
 }
 
 /**
  * An upcoming class as seen by one student — the same DanceClassInfo plus
  * their own reservation state for it, so each class in "Próximas clases" can
- * carry its own Reservar/Cancelar control (a student may reserve more than
+ * carry its own Confirmar/Cancelar control (a student may reserve more than
  * one class the same day).
  */
 export interface UpcomingClassStatus extends DanceClassInfo {
-  registrationStatus: RegistrationStatus | null;
+  registrationStatus: AttendanceIntentStatus | null;
 }
 
 export interface SellPackageInput {
@@ -213,7 +256,7 @@ export interface ManualCheckInResult {
 
 export interface ConfirmAttendanceResult {
   ok: true;
-  status: RegistrationStatus;
+  status: AttendanceIntentStatus;
   message: string;
 }
 
@@ -224,23 +267,20 @@ export interface RiskStudent {
   availableClasses: number;
 }
 
-export interface ClassOccupancy {
-  className: string;
-  teacher: string;
-  roomName: string;
-  floor: 1 | 2;
-  averageAttendees: number;
-  capacity: number;
-  occupancy: number; // 0-1
-}
-
-export interface RoomStatus {
+/**
+ * A room's operational reality for today: several classes may run back to
+ * back or simultaneously with other rooms (Alma has simultaneous classes),
+ * so a single OCUPADO/LIBRE snapshot does not describe a room — this is a
+ * same-day rollup instead. `peakOccupancy` is the busiest class in the room
+ * today, confirmed / comfortable capacity.
+ */
+export interface RoomOccupancyToday {
   roomId: string;
   name: string;
-  floor: 1 | 2;
-  capacity: number;
-  status: 'OCUPADO' | 'LIBRE';
-  currentClassName: string | null;
+  comfortableCapacity: number;
+  classesToday: number;
+  peakOccupancy: number; // 0-1
+  nearCapacity: boolean; // peakOccupancy >= 0.85
 }
 
 export interface EngagementBreakdown {
@@ -261,10 +301,17 @@ export interface DirectorDashboard {
   packagesExpiringSoon: number;
   deferredRevenue: number; // COP
   studentsAtRisk: RiskStudent[];
-  occupancyByClass: ClassOccupancy[];
-  rooms: RoomStatus[];
+  classesToday: ScheduledClass[];
+  roomOccupancyToday: RoomOccupancyToday[];
   engagementBreakdown: EngagementBreakdown;
   insights: string[];
+}
+
+/** A short, human-triaged reason a student needs reception's attention today. */
+export interface AttentionItem {
+  studentId: string;
+  name: string;
+  reason: string;
 }
 
 export type CheckInScenario = 'SUCCESS' | 'ALREADY_CHECKED_IN' | 'NO_PACKAGE';
