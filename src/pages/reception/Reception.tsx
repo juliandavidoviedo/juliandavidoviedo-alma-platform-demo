@@ -16,23 +16,30 @@ import {
   DoorOpen,
   X,
   Ban,
+  AlertOctagon,
+  Wallet,
 } from 'lucide-react';
 import {
   api,
+  CATEGORY_LABELS,
   CLASS_STATUS_LABELS,
+  DEMO_TODAY,
   ENGAGEMENT_LABELS,
   PAYMENT_METHOD_LABELS,
+  PROGRAM_LABELS,
+  ATTENDANCE_INTENT_LABELS,
   RENEWAL_METHOD_LABELS,
   ROOM_BOOKING_TYPE_LABELS,
   ROOMS,
 } from '../../lib/api';
 import type {
+  AttendanceIntentStatus,
+  AttentionItem,
   ClassRoster,
   ClassStatus,
   DanceRole,
   PaymentMethod,
   ReceptionSummary,
-  RegistrationStatus,
   RenewalRequest,
   RoomBooking,
   RoomBookingType,
@@ -60,9 +67,10 @@ const PACKAGE_OPTIONS: PackageOption[] = [
   { name: 'Paquete 4 clases', classes: 4, price: 150_000, validityDays: 45 },
   { name: 'Paquete 8 clases', classes: 8, price: 280_000, validityDays: 60 },
   { name: 'Paquete 12 clases', classes: 12, price: 390_000, validityDays: 90 },
+  { name: 'Alma Open (mensual)', classes: 999, price: 220_000, validityDays: 30 },
 ];
 
-const PAYMENT_METHODS: PaymentMethod[] = ['EFECTIVO', 'TRANSFERENCIA', 'TARJETA', 'QR', 'OTRO'];
+const PAYMENT_METHODS: PaymentMethod[] = ['EFECTIVO', 'QR', 'TARJETA'];
 const LEVELS: StudentLevel[] = ['INICIAL', 'INTERMEDIO', 'AVANZADO'];
 const DANCE_ROLES: DanceRole[] = ['LIDER', 'SEGUIDOR', 'AMBOS'];
 const BOOKING_TYPES: RoomBookingType[] = ['PERSONALIZADA', 'ENSAYO', 'PRACTICA'];
@@ -73,18 +81,11 @@ const ENGAGEMENT_TONE: Record<string, BadgeTone> = {
   EN_RIESGO: 'danger',
 };
 
-const REGISTRATION_TONE: Record<RegistrationStatus, BadgeTone> = {
-  CHECKED_IN: 'success',
+const REGISTRATION_TONE: Record<AttendanceIntentStatus, BadgeTone> = {
+  ATTENDED: 'success',
   CONFIRMED: 'gold',
-  MISSING: 'danger',
+  NO_SHOW: 'danger',
   CANCELLED: 'neutral',
-};
-
-const REGISTRATION_LABEL: Record<RegistrationStatus, string> = {
-  CHECKED_IN: 'Llegó',
-  CONFIRMED: 'Confirmado',
-  MISSING: 'No llegó',
-  CANCELLED: 'Canceló',
 };
 
 const CLASS_STATUS_TONE: Record<ClassStatus, BadgeTone> = {
@@ -229,6 +230,7 @@ export function Reception() {
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [roster, setRoster] = useState<ClassRoster | null>(null);
   const [renewalRequests, setRenewalRequests] = useState<RenewalRequest[]>([]);
+  const [attentionItems, setAttentionItems] = useState<AttentionItem[]>([]);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<PackageOption>(PACKAGE_OPTIONS[2]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('TRANSFERENCIA');
@@ -272,6 +274,10 @@ export function Reception() {
     api.frontDesk.getRenewalRequests().then(setRenewalRequests);
   }
 
+  function loadAttentionItems() {
+    api.frontDesk.getAttentionItems().then(setAttentionItems);
+  }
+
   function loadSummary() {
     api.frontDesk.getSummary().then(setSummary);
   }
@@ -288,6 +294,7 @@ export function Reception() {
     runSearch('Julián');
     loadRoster();
     loadRenewalRequests();
+    loadAttentionItems();
     loadSummary();
     loadSchedule();
     loadRoomBookings();
@@ -492,7 +499,7 @@ export function Reception() {
                       <div className="min-w-0 flex-1">
                         <h2 className="font-display text-lg text-alma-text">{profile.firstName}</h2>
                         <p className="text-xs text-alma-text-muted">
-                          {profile.level} · {profile.danceRole}
+                          {profile.level} · {profile.danceRole} · {PROGRAM_LABELS[profile.program]}
                         </p>
                       </div>
                       <Badge tone={ENGAGEMENT_TONE[profile.engagement.status]}>
@@ -522,6 +529,13 @@ export function Reception() {
                         </p>
                       ) : (
                         <p className="mt-2 text-xs text-[#e4a3ab]">Sin paquete activo</p>
+                      )}
+                      {profile.packageHistory[0] && (
+                        <p className="mt-1 flex items-center gap-1.5 text-xs text-alma-text-muted">
+                          <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
+                          Último pago: {PAYMENT_METHOD_LABELS[profile.packageHistory[0].paymentMethod]}
+                          {' '}(informativo)
+                        </p>
                       )}
                     </div>
 
@@ -615,13 +629,12 @@ export function Reception() {
                   {roster?.danceClass && (
                     <p className="text-xs text-alma-text-muted">
                       {roster.danceClass.name} · {roster.danceClass.startTime}–{roster.danceClass.endTime} ·{' '}
-                      {roster.danceClass.roomName} (piso {roster.danceClass.floor}) · Profesora{' '}
-                      {roster.danceClass.teacher}
+                      {roster.danceClass.roomName} · Profesora {roster.danceClass.teacher}
                     </p>
                   )}
                 </div>
                 <Badge tone="gold">
-                  {roster?.registrations.filter((r) => r.status === 'CHECKED_IN').length ?? 0} en sala
+                  {roster?.registrations.filter((r) => r.status === 'ATTENDED').length ?? 0} en sala
                 </Badge>
               </div>
 
@@ -631,20 +644,20 @@ export function Reception() {
                     <div>
                       <p className="text-sm font-medium text-alma-text">{entry.studentName}</p>
                       <p className="text-xs text-alma-text-muted">
-                        {entry.status === 'CHECKED_IN' && `Llegó a las ${entry.checkedInAt}`}
+                        {entry.status === 'ATTENDED' && `Llegó a las ${entry.checkedInAt}`}
                         {entry.status === 'CONFIRMED' && `Confirmó a las ${entry.confirmedAt}`}
-                        {entry.status === 'MISSING' && `Confirmó a las ${entry.confirmedAt} — no llegó`}
+                        {entry.status === 'NO_SHOW' && `Confirmó a las ${entry.confirmedAt} — no llegó`}
                         {entry.status === 'CANCELLED' && `Canceló a las ${entry.cancelledAt}`}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {entry.status === 'CHECKED_IN' && entry.consumptionType === 'SIN_PAQUETE' && (
+                      {entry.status === 'ATTENDED' && entry.consumptionType === 'SIN_PAQUETE' && (
                         <Badge tone="danger">
                           <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
                           Sin paquete
                         </Badge>
                       )}
-                      <Badge tone={REGISTRATION_TONE[entry.status]}>{REGISTRATION_LABEL[entry.status]}</Badge>
+                      <Badge tone={REGISTRATION_TONE[entry.status]}>{ATTENDANCE_INTENT_LABELS[entry.status]}</Badge>
                     </div>
                   </li>
                 ))}
@@ -691,6 +704,25 @@ export function Reception() {
                 ))}
                 {renewalRequests.length === 0 && (
                   <li className="py-6 text-center text-sm text-alma-text-muted">Sin solicitudes pendientes.</li>
+                )}
+              </ul>
+            </Card>
+
+            {/* Students that need a human decision today — short and human-triaged, not a score */}
+            <Card className="h-fit">
+              <div className="flex items-center gap-2">
+                <AlertOctagon className="h-4 w-4 text-alma-gold" aria-hidden="true" />
+                <h2 className="font-display text-lg text-alma-text">Alumnos que requieren atención</h2>
+              </div>
+              <ul className="mt-4 divide-y divide-alma-border">
+                {attentionItems.map((item) => (
+                  <li key={item.studentId} className="py-3">
+                    <p className="text-sm font-medium text-alma-text">{item.name}</p>
+                    <p className="text-xs text-alma-text-muted">{item.reason}</p>
+                  </li>
+                ))}
+                {attentionItems.length === 0 && (
+                  <li className="py-6 text-center text-sm text-alma-text-muted">Nada pendiente hoy.</li>
                 )}
               </ul>
             </Card>
@@ -749,6 +781,45 @@ export function Reception() {
             </div>
           )}
 
+          {/* "What needs attention right now" — today's classes, one row per occurrence */}
+          <Card className="mt-6">
+            <h2 className="font-display text-lg text-alma-text">Clases de hoy</h2>
+            <p className="mt-1 text-xs text-alma-text-muted">
+              Alma corre clases simultáneas en distintos salones — cada fila es una clase independiente.
+            </p>
+
+            <ul className="mt-4 divide-y divide-alma-border">
+              {schedule
+                .filter((cls) => cls.date === DEMO_TODAY)
+                .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                .map((cls) => {
+                  const pending = Math.max(0, cls.capacity - cls.confirmedCount - cls.cancelledCount);
+                  const occupancy = cls.confirmedCount / cls.capacity;
+                  return (
+                    <li key={cls.classId} className="py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-alma-text">
+                            {cls.name} · <span className="text-alma-text-muted">{CATEGORY_LABELS[cls.category]}</span>
+                          </p>
+                          <p className="text-xs text-alma-text-muted">
+                            {cls.startTime}–{cls.endTime} · {cls.roomName} · Prof. {cls.teacher}
+                          </p>
+                          <p className="text-xs text-alma-text-muted">
+                            {cls.confirmedCount} confirmados · {cls.cancelledCount} cancelados · {pending} pendientes
+                            {' '}· cupo {cls.capacity}
+                          </p>
+                        </div>
+                        <Badge tone={occupancy >= 0.85 ? 'gold' : occupancy < 0.5 ? 'danger' : 'neutral'}>
+                          {Math.round(occupancy * 100)}% ocupación
+                        </Badge>
+                      </div>
+                    </li>
+                  );
+                })}
+            </ul>
+          </Card>
+
           <Card className="mt-6">
             <h2 className="font-display text-lg text-alma-text">Agenda de clases</h2>
             <p className="mt-1 text-xs text-alma-text-muted">
@@ -762,11 +833,11 @@ export function Reception() {
                     <div>
                       <p className="text-sm font-medium text-alma-text">{cls.name}</p>
                       <p className="text-xs text-alma-text-muted">
-                        {formatDateWithWeekday(cls.date)} · {cls.startTime}–{cls.endTime} · {cls.roomName} (piso{' '}
-                        {cls.floor}) · Prof. {cls.teacher}
+                        {formatDateWithWeekday(cls.date)} · {cls.startTime}–{cls.endTime} · {cls.roomName} · Prof.{' '}
+                        {cls.teacher}
                       </p>
                       <p className="text-xs text-alma-text-muted">
-                        {cls.attendeeCount}/{cls.capacity} reservados
+                        {cls.confirmedCount}/{cls.capacity} reservados
                         {cls.status === 'CANCELADA' && cls.cancelReason ? ` · Motivo: ${cls.cancelReason}` : ''}
                       </p>
                     </div>
@@ -838,7 +909,7 @@ export function Reception() {
               >
                 {ROOMS.map((r) => (
                   <option key={r.roomId} value={r.roomId}>
-                    {r.name} (piso {r.floor})
+                    {r.name} (cupo {r.capacity})
                   </option>
                 ))}
               </select>

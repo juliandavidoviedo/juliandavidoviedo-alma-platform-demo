@@ -7,9 +7,8 @@ import {
   CalendarClock,
   Activity,
   DoorOpen,
-  Sparkles,
 } from 'lucide-react';
-import { api } from '../../lib/api';
+import { api, CATEGORY_LABELS } from '../../lib/api';
 import type { DirectorDashboard as DirectorDashboardData } from '../../lib/api';
 import { Card } from '../../components/ui/Card';
 import { StatTile } from '../../components/ui/StatTile';
@@ -37,9 +36,10 @@ export function DirectorDashboard() {
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
       <header className="flex flex-col gap-1">
         <span className="text-sm text-alma-text-muted">Panel de dirección · Iván</span>
-        <h1 className="font-display text-3xl text-alma-text">
-          {data ? `Resumen de ${data.monthLabel}` : 'Cargando resumen del mes…'}
-        </h1>
+        <h1 className="font-display text-3xl text-alma-text">¿Cómo está operando la academia hoy?</h1>
+        <p className="text-sm text-alma-text-muted">
+          Visibilidad operativa y planeación de clases — {data ? data.monthLabel : 'cargando…'}
+        </p>
       </header>
 
       <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -139,27 +139,32 @@ export function DirectorDashboard() {
               </ul>
             </Card>
 
-            {/* Occupancy */}
+            {/* Rooms near capacity — today only, since a room hosts several independent classes */}
             <Card>
-              <h2 className="font-display text-lg text-alma-text">Ocupación por clase</h2>
-              <p className="mt-1 text-xs text-alma-text-muted">Promedio de asistentes vs. cupo.</p>
+              <div className="flex items-center gap-2">
+                <DoorOpen className="h-4 w-4 text-alma-gold" aria-hidden="true" />
+                <h2 className="font-display text-lg text-alma-text">Ocupación por salón — hoy</h2>
+              </div>
+              <p className="mt-1 text-xs text-alma-text-muted">
+                Pico de ocupación (confirmados / cupo cómodo) entre las clases de hoy en cada salón.
+              </p>
               <ul className="mt-4 space-y-4">
-                {data.occupancyByClass.map((cls) => (
-                  <li key={cls.className}>
+                {data.roomOccupancyToday.map((room) => (
+                  <li key={room.roomId}>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-alma-text">{cls.className}</span>
-                      <span className="text-alma-text-muted">
-                        {cls.averageAttendees}/{cls.capacity} · {Math.round(cls.occupancy * 100)}%
-                      </span>
+                      <span className="text-alma-text">{room.name}</span>
+                      <span className="text-alma-text-muted">{Math.round(room.peakOccupancy * 100)}%</span>
                     </div>
                     <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-alma-border">
                       <div
                         className="h-full rounded-full bg-alma-gold"
-                        style={{ width: `${Math.round(cls.occupancy * 100)}%` }}
+                        style={{ width: `${Math.round(room.peakOccupancy * 100)}%` }}
                       />
                     </div>
                     <p className="mt-1 text-xs text-alma-text-muted">
-                      {cls.roomName} (piso {cls.floor}) · Profesor {cls.teacher}
+                      Cupo cómodo {room.comfortableCapacity} · {room.classesToday} clase
+                      {room.classesToday === 1 ? '' : 's'} hoy
+                      {room.nearCapacity ? ' · cerca del cupo' : ''}
                     </p>
                   </li>
                 ))}
@@ -167,42 +172,37 @@ export function DirectorDashboard() {
             </Card>
           </div>
 
-          {/* Rooms and future capability */}
+          {/* Classes today — the primary "how is the academy operating" view */}
           <Card className="mt-6">
-            <div className="flex items-center gap-2">
-              <DoorOpen className="h-4 w-4 text-alma-gold" aria-hidden="true" />
-              <h2 className="font-display text-lg text-alma-text">Salones</h2>
-            </div>
+            <h2 className="font-display text-lg text-alma-text">Clases de hoy</h2>
             <p className="mt-1 text-xs text-alma-text-muted">
-              Dos pisos, cuatro salones. Estado en un momento típico de la semana.
+              Esperados/confirmados por clase, no un solo evento — Alma corre clases simultáneas en
+              salones distintos.
             </p>
 
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {data.rooms.map((room) => (
-                <div key={room.roomId} className="rounded-xl border border-alma-border bg-alma-bg p-3.5">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-alma-text">{room.name}</p>
-                    <Badge tone={room.status === 'OCUPADO' ? 'gold' : 'neutral'}>
-                      {room.status === 'OCUPADO' ? 'Ocupado' : 'Libre'}
+            <ul className="mt-4 divide-y divide-alma-border">
+              {data.classesToday.map((cls) => {
+                const occupancy = cls.confirmedCount / cls.capacity;
+                return (
+                  <li key={cls.classId} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-alma-text">
+                        {cls.name}{' '}
+                        <span className="text-xs font-normal text-alma-text-muted">
+                          · {CATEGORY_LABELS[cls.category]}
+                        </span>
+                      </p>
+                      <p className="text-xs text-alma-text-muted">
+                        {cls.startTime}–{cls.endTime} · {cls.roomName} · Prof. {cls.teacher}
+                      </p>
+                    </div>
+                    <Badge tone={occupancy >= 0.85 ? 'gold' : occupancy < 0.5 ? 'danger' : 'neutral'}>
+                      {cls.confirmedCount}/{cls.capacity} confirmados
                     </Badge>
-                  </div>
-                  <p className="mt-1 text-xs text-alma-text-muted">
-                    Piso {room.floor} · cupo {room.capacity}
-                  </p>
-                  <p className="mt-2 text-xs text-alma-text-secondary">
-                    {room.status === 'OCUPADO' ? room.currentClassName : 'Sin clase programada ahora'}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-alma-gold/25 bg-alma-gold/5 p-3.5 text-xs text-alma-text-secondary">
-              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-alma-gold" aria-hidden="true" />
-              <span>
-                Próximamente: los salones libres fuera de horario de clase podrán ofrecerse para clases
-                privadas, ensayos y alquiler de práctica — sin necesidad de sumar metros cuadrados.
-              </span>
-            </div>
+                  </li>
+                );
+              })}
+            </ul>
           </Card>
         </>
       )}

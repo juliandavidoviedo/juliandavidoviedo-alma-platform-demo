@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Bell, CalendarCheck, Flame, QrCode, Wallet, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { api, JULIAN } from '../../lib/api';
+import { api, JULIAN, PROGRAM_LABELS } from '../../lib/api';
 import type { StudentSummary } from '../../lib/api';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -128,6 +128,7 @@ export function StudentHome() {
     <div className="mx-auto max-w-md px-4 py-8 sm:px-6">
       <p className="text-sm text-alma-text-muted">Portal del alumno · Julián</p>
       <h1 className="mt-1 font-display text-2xl text-alma-text">Hola, Julián</h1>
+      <p className="mt-1 text-xs text-alma-text-muted">Plan: {PROGRAM_LABELS[data.program]}</p>
 
       {/* Balance — the dominant metric */}
       <Card elevated className="mt-6 text-center">
@@ -176,11 +177,10 @@ export function StudentHome() {
             {data.todayClass.danceClass.endTime}
           </p>
           <p className="text-xs text-alma-text-muted">
-            {data.todayClass.danceClass.roomName} (piso {data.todayClass.danceClass.floor}) · Profesora{' '}
-            {data.todayClass.danceClass.teacher}
+            {data.todayClass.danceClass.roomName} · Profesora {data.todayClass.danceClass.teacher}
           </p>
 
-          {todayStatus === 'CHECKED_IN' ? (
+          {todayStatus === 'ATTENDED' ? (
             <p className="mt-3 text-xs text-alma-text-muted">Ya marcaste tu asistencia hoy.</p>
           ) : todayStatus === 'CONFIRMED' ? (
             <div className="mt-3 flex items-center justify-between gap-3">
@@ -259,16 +259,16 @@ export function StudentHome() {
                     {formatDateWithWeekday(cls.date)} · {cls.startTime}–{cls.endTime}
                   </p>
                   <p className="text-xs text-alma-text-muted">
-                    {cls.roomName} · Profesor{cls.teacher === 'Laura' ? 'a' : ''} {cls.teacher}
+                    {cls.roomName} · Con {cls.teacher}
                   </p>
                 </div>
                 <span className="shrink-0 text-xs text-alma-text-muted">
-                  {cls.attendeeCount}/{cls.capacity}
+                  {cls.confirmedCount}/{cls.capacity}
                 </span>
               </div>
 
               <div className="mt-3">
-                {cls.registrationStatus === 'CHECKED_IN' ? (
+                {cls.registrationStatus === 'ATTENDED' ? (
                   <p className="text-xs text-alma-text-muted">Ya asististe a esta clase.</p>
                 ) : cls.registrationStatus === 'CONFIRMED' ? (
                   <div className="flex items-center justify-between gap-3">
