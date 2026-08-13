@@ -38,10 +38,13 @@ const REPORT_PLANS = [
 function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: () => void }) {
   const [plan, setPlan] = useState(REPORT_PLANS[0]);
   const [method, setMethod] = useState<PaymentMethod>('QR');
+  const [transferReference, setTransferReference] = useState('');
+  const [receiptFileName, setReceiptFileName] = useState('');
   const [proofNote, setProofNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const urgent = !data.package || data.availableClasses === 0 || (data.package?.daysUntilExpiry ?? 99) <= 7;
+  const isTransfer = method === 'QR';
 
   async function submitReport() {
     setBusy(true);
@@ -51,12 +54,17 @@ function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: (
       classes: plan.classes,
       amount: plan.price,
       paymentMethod: method,
+      transferReference: isTransfer ? transferReference || undefined : undefined,
+      receiptFileName: receiptFileName || undefined,
       proofNote: proofNote || undefined,
       actedBy: 'STUDENT',
       actedByName: data.firstName,
     });
     setFeedback(r.message);
     setBusy(false);
+    setTransferReference('');
+    setReceiptFileName('');
+    setProofNote('');
     onReported();
   }
 
@@ -70,7 +78,7 @@ function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: (
       </div>
       <p className="mt-1 text-xs text-alma-text-muted">
         Métodos: efectivo, QR Davivienda o tarjeta. Reportar aquí no activa el plan de inmediato — Jonathan
-        o Iván lo revisan y lo activan por 30 días.
+        o Iván lo revisan y asignan el consecutivo físico del recibo antes de aprobar.
       </p>
 
       <div className="mt-3 flex flex-col gap-2">
@@ -96,11 +104,42 @@ function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: (
             </option>
           ))}
         </select>
+
+        {isTransfer ? (
+          <>
+            <input
+              type="text"
+              value={transferReference}
+              onChange={(e) => setTransferReference(e.target.value)}
+              placeholder="Referencia de la transferencia (opcional)"
+              className="min-h-[44px] rounded-xl border border-alma-border bg-alma-bg px-3 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+            />
+            <p className="text-xs text-alma-text-muted">
+              No necesitas el consecutivo físico todavía — Jonathan lo asigna al revisar tu pago.
+            </p>
+            <input
+              type="text"
+              value={receiptFileName}
+              onChange={(e) => setReceiptFileName(e.target.value)}
+              placeholder="Nombre del archivo del comprobante (recomendado)"
+              className="min-h-[44px] rounded-xl border border-alma-border bg-alma-bg px-3 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+            />
+          </>
+        ) : (
+          <input
+            type="text"
+            value={receiptFileName}
+            onChange={(e) => setReceiptFileName(e.target.value)}
+            placeholder="Nombre del archivo del recibo (opcional)"
+            className="min-h-[44px] rounded-xl border border-alma-border bg-alma-bg px-3 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+          />
+        )}
+
         <input
           type="text"
           value={proofNote}
           onChange={(e) => setProofNote(e.target.value)}
-          placeholder="Nota de comprobante (opcional)"
+          placeholder="Nota (opcional)"
           className="min-h-[44px] rounded-xl border border-alma-border bg-alma-bg px-3 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
         />
         <Button variant="primary" onClick={submitReport} disabled={busy}>
@@ -119,15 +158,23 @@ function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: (
       {data.paymentReports.length > 0 && (
         <ul className="mt-4 divide-y divide-alma-border">
           {data.paymentReports.map((r) => (
-            <li key={r.reportId} className="flex items-center justify-between py-2.5">
-              <div>
-                <p className="text-xs text-alma-text-secondary">{r.planName}</p>
-                <p className="text-xs text-alma-text-muted">
-                  {r.reportedAt} · {PAYMENT_METHOD_LABELS[r.paymentMethod]}
-                  {r.saleConsecutive ? ` · ${r.saleConsecutive}` : ''}
-                </p>
+            <li key={r.reportId} className="py-2.5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-alma-text-secondary">{r.planName}</p>
+                  <p className="text-xs text-alma-text-muted">
+                    {r.reportedAt} · {PAYMENT_METHOD_LABELS[r.paymentMethod]}
+                    {r.transferReference ? ` · ref. ${r.transferReference}` : ''}
+                  </p>
+                </div>
+                <Badge tone={PAYMENT_REPORT_TONE[r.status]}>{PAYMENT_REPORT_STATUS_LABELS[r.status]}</Badge>
               </div>
-              <Badge tone={PAYMENT_REPORT_TONE[r.status]}>{PAYMENT_REPORT_STATUS_LABELS[r.status]}</Badge>
+              {r.status === 'APPROVED' && r.saleConsecutive && (
+                <p className="mt-1 text-xs text-alma-gold">Consecutivo {r.saleConsecutive}</p>
+              )}
+              {r.status === 'REJECTED' && r.rejectionReason && (
+                <p className="mt-1 text-xs text-[#e4a3ab]">{r.rejectionReason}</p>
+              )}
             </li>
           ))}
         </ul>

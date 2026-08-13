@@ -349,6 +349,21 @@ export const PAYMENT_REPORT_STATUS_LABELS: Record<PaymentReportStatus, string> =
   REJECTED: 'Rechazado',
 };
 
+/**
+ * The physical sale/receipt consecutive (`saleConsecutive`) is the primary
+ * validation reference for every payment method — it is always assigned at
+ * approval, by Jonathan or Iván, from the physical receipt book.
+ *
+ * `transferReference` is different: it's the bank's own transfer reference
+ * for `QR` (Davivienda QR/transfer) only, optionally entered by the student
+ * or Gestión at report time — never required, since a student reporting a
+ * remote payment should never be blocked for lacking a physical consecutive
+ * that doesn't exist yet on their end.
+ *
+ * `receiptFileName` is a filename the reporter types in — there is no real
+ * upload/persistence in this demo (see PROJECT_CONTEXT.md "still mock"),
+ * it just lets the review card show "attached" vs. not.
+ */
 export interface PaymentReport {
   reportId: string;
   studentId: string;
@@ -357,6 +372,8 @@ export interface PaymentReport {
   classes: number;
   amount: number;
   paymentMethod: PaymentMethod;
+  transferReference: string | null;
+  receiptFileName: string | null;
   proofNote: string | null;
   status: PaymentReportStatus;
   reportedAt: string;
@@ -374,6 +391,8 @@ export interface ReportPaymentInput {
   classes: number;
   amount: number;
   paymentMethod: PaymentMethod;
+  transferReference?: string;
+  receiptFileName?: string;
   proofNote?: string;
   actedBy: ActorKind;
   actedByName: string;

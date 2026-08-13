@@ -108,7 +108,7 @@ const CLASS_STATUS_TONE: Record<ClassStatus, BadgeTone> = {
   CANCELADA: 'danger',
 };
 
-type Tab = 'mostrador' | 'agenda' | 'salones';
+type Tab = 'pendientes' | 'mostrador' | 'agenda' | 'salones';
 
 function NewStudentForm({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
@@ -238,7 +238,7 @@ function nextConsecutiveSuggestion(): string {
 }
 
 export function Gestion() {
-  const [tab, setTab] = useState<Tab>('mostrador');
+  const [tab, setTab] = useState<Tab>('pendientes');
 
   // Who is operating this screen — no real auth in the demo, so Gestión
   // staff type their own name; it's what lands in the audit trail.
@@ -264,6 +264,8 @@ export function Gestion() {
   const [reportingForStudent, setReportingForStudent] = useState(false);
   const [onBehalfPlan, setOnBehalfPlan] = useState<PackageOption>(PACKAGE_OPTIONS[2]);
   const [onBehalfMethod, setOnBehalfMethod] = useState<PaymentMethod>('EFECTIVO');
+  const [onBehalfTransferRef, setOnBehalfTransferRef] = useState('');
+  const [onBehalfReceipt, setOnBehalfReceipt] = useState('');
   const [onBehalfProof, setOnBehalfProof] = useState('');
   const [onBehalfReason, setOnBehalfReason] = useState('');
 
@@ -281,6 +283,7 @@ export function Gestion() {
   const [rejectingReportId, setRejectingReportId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [reviewingReportId, setReviewingReportId] = useState<string | null>(null);
+  const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
   const [confirmingClassId, setConfirmingClassId] = useState<string | null>(null);
   const [cancelingClassId, setCancelingClassId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -340,6 +343,24 @@ export function Gestion() {
     loadRoomBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Seed one stable consecutive suggestion per pending report, exactly
+  // once - so the value shown to Jonathan and the value actually
+  // submitted on Aprobar are always the same string, never two
+  // independently-random ones.
+  useEffect(() => {
+    setConsecutiveByReport((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const r of paymentReports) {
+        if (r.status === 'PENDING_REVIEW' && !(r.reportId in next)) {
+          next[r.reportId] = nextConsecutiveSuggestion();
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [paymentReports]);
 
   function handleSearchChange(value: string) {
     setQuery(value);
@@ -417,6 +438,8 @@ export function Gestion() {
       classes: onBehalfPlan.classes,
       amount: onBehalfPlan.price,
       paymentMethod: onBehalfMethod,
+      transferReference: onBehalfMethod === 'QR' ? onBehalfTransferRef || undefined : undefined,
+      receiptFileName: onBehalfReceipt || undefined,
       proofNote: onBehalfProof || undefined,
       actedBy: 'GESTION',
       actedByName: staffName,
@@ -426,6 +449,9 @@ export function Gestion() {
     setProfile(refreshed);
     setFeedback(result.message);
     setReportingForStudent(false);
+    setOnBehalfTransferRef('');
+    setOnBehalfReceipt('');
+    setOnBehalfProof('');
     loadPaymentReports();
   }
 
@@ -451,11 +477,13 @@ export function Gestion() {
   }
 
   async function approvePayment(reportId: string) {
+    const saleConsecutive = (consecutiveByReport[reportId] ?? '').trim();
+    if (!saleConsecutive) return; // button is disabled in this case, but guard anyway
     setReviewingReportId(reportId);
-    const saleConsecutive = consecutiveByReport[reportId] || nextConsecutiveSuggestion();
     const r = await api.payments.approve({ reportId, approverName, saleConsecutive });
     setScheduleFeedback(r.message);
     setReviewingReportId(null);
+    setExpandedReportId(null);
     loadPaymentReports();
     if (selectedId === r.report.studentId) {
       api.frontDesk.getStudentProfile(selectedId).then(setProfile);
@@ -469,6 +497,7 @@ export function Gestion() {
     setReviewingReportId(null);
     setRejectingReportId(null);
     setRejectReason('');
+    setExpandedReportId(null);
     loadPaymentReports();
   }
 
@@ -546,6 +575,7 @@ export function Gestion() {
 
       <nav className="mt-6 inline-flex rounded-full border border-alma-border bg-alma-surface p-1">
         {([
+          ['pendientes', 'Pendientes'],
           ['mostrador', 'Mostrador'],
           ['agenda', 'Agenda y KPIs'],
           ['salones', 'Salones'],
@@ -563,6 +593,189 @@ export function Gestion() {
           </button>
         ))}
       </nav>
+
+      {tab === 'pendientes' && (
+        <div className="mt-8">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <StatTile
+              label="Pagos por validar"
+              value={paymentReports.filter((r) => r.status === 'PENDING_REVIEW').length.toString()}
+              icon={<Receipt className="h-4 w-4" aria-hidden="true" />}
+            />
+            <StatTile
+              label="Confirmaciones hoy"
+              value={schedule
+                .filter((c) => c.date === DEMO_TODAY)
+                .reduce((sum, c) => sum + c.confirmedCount, 0)
+                .toString()}
+              delta={`${schedule.filter((c) => c.date === DEMO_TODAY).length} clases`}
+              deltaTone="neutral"
+              icon={<CalendarCheck className="h-4 w-4" aria-hidden="true" />}
+            />
+            <StatTile
+              label="Excepciones"
+              value={attentionItems.length.toString()}
+              icon={<AlertOctagon className="h-4 w-4" aria-hidden="true" />}
+            />
+          </div>
+
+          {scheduleFeedback && (
+            <div className="mt-6">
+              <ActionFeedback message={scheduleFeedback} />
+            </div>
+          )}
+
+          {/* Payment reports awaiting Jonathan/Iván's review — the required end-to-end scenario */}
+          <Card className="mt-6">
+            <div className="flex items-center gap-2">
+              <Receipt className="h-4 w-4 text-alma-gold" aria-hidden="true" />
+              <h2 className="font-display text-lg text-alma-text">Pagos por aprobar</h2>
+            </div>
+            <p className="mt-1 text-xs text-alma-text-muted">
+              El consecutivo físico del recibo es la referencia principal de validación — se asigna al
+              aprobar, sin importar el medio de pago. Para transferencia QR, el alumno puede reportar sin
+              consecutivo todavía.
+            </p>
+            <label className="mt-3 flex items-center gap-2 text-xs text-alma-text-muted">
+              Aprueba/rechaza como
+              <input
+                type="text"
+                value={approverName}
+                onChange={(e) => setApproverName(e.target.value)}
+                className="min-h-[32px] w-28 rounded-lg border border-alma-border bg-alma-bg px-2 text-sm text-alma-text focus:border-alma-gold focus:outline-none"
+              />
+            </label>
+
+            <ul className="mt-4 divide-y divide-alma-border">
+              {paymentReports.map((r) => {
+                const expanded = expandedReportId === r.reportId;
+                const consecutiveValue = consecutiveByReport[r.reportId] ?? '';
+                return (
+                  <li key={r.reportId} className="py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-alma-text">
+                          {r.studentName} · {r.planName}
+                        </p>
+                        <p className="text-xs text-alma-text-muted">
+                          {formatCOP(r.amount)} · {PAYMENT_METHOD_LABELS[r.paymentMethod]} · reportado por{' '}
+                          {r.reportedByName} a las {r.reportedAt}
+                        </p>
+                        {(r.transferReference || r.receiptFileName) && (
+                          <p className="mt-0.5 text-xs text-alma-text-muted">
+                            {r.transferReference ? `Ref. transferencia: ${r.transferReference}` : ''}
+                            {r.transferReference && r.receiptFileName ? ' · ' : ''}
+                            {r.receiptFileName ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Receipt className="h-3 w-3" aria-hidden="true" />
+                                {r.receiptFileName}
+                              </span>
+                            ) : null}
+                          </p>
+                        )}
+                        {r.proofNote && <p className="mt-0.5 text-xs text-alma-text-muted">{r.proofNote}</p>}
+                        {r.status === 'APPROVED' && (
+                          <p className="mt-1 text-xs text-alma-gold">
+                            Aprobado por {r.reviewedBy} · consecutivo {r.saleConsecutive}
+                          </p>
+                        )}
+                        {r.status === 'REJECTED' && (
+                          <p className="mt-1 text-xs text-[#e4a3ab]">Rechazado: {r.rejectionReason}</p>
+                        )}
+                      </div>
+                      <Badge tone={PAYMENT_REPORT_TONE[r.status]}>{PAYMENT_REPORT_STATUS_LABELS[r.status]}</Badge>
+                    </div>
+
+                    {r.status === 'PENDING_REVIEW' && !expanded && (
+                      <Button
+                        variant="ghost"
+                        className="mt-2"
+                        onClick={() => setExpandedReportId(r.reportId)}
+                      >
+                        Revisar
+                      </Button>
+                    )}
+
+                    {r.status === 'PENDING_REVIEW' && expanded && (
+                      <div className="mt-2.5 flex flex-col gap-2">
+                        <input
+                          type="text"
+                          value={consecutiveValue}
+                          onChange={(e) =>
+                            setConsecutiveByReport((prev) => ({ ...prev, [r.reportId]: e.target.value }))
+                          }
+                          placeholder="Consecutivo de venta (obligatorio)"
+                          className="min-h-[40px] rounded-lg border border-alma-border bg-alma-bg px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            variant="secondary"
+                            className="flex-1"
+                            onClick={() => approvePayment(r.reportId)}
+                            disabled={reviewingReportId === r.reportId || !consecutiveValue.trim()}
+                          >
+                            <Check className="h-4 w-4" aria-hidden="true" />
+                            Aprobar
+                          </Button>
+                          <Button
+                            variant="danger"
+                            className="flex-1"
+                            onClick={() =>
+                              setRejectingReportId(rejectingReportId === r.reportId ? null : r.reportId)
+                            }
+                          >
+                            <X className="h-4 w-4" aria-hidden="true" />
+                            Rechazar
+                          </Button>
+                          <Button variant="ghost" onClick={() => setExpandedReportId(null)}>
+                            Ocultar
+                          </Button>
+                        </div>
+                        {rejectingReportId === r.reportId && (
+                          <div className="flex flex-col gap-2 rounded-lg border border-alma-wine/40 bg-alma-wine/5 p-2.5 sm:flex-row">
+                            <input
+                              type="text"
+                              value={rejectReason}
+                              onChange={(e) => setRejectReason(e.target.value)}
+                              placeholder="Motivo del rechazo"
+                              className="min-h-[40px] flex-1 rounded-lg border border-alma-border bg-alma-bg px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+                            />
+                            <Button variant="danger" onClick={() => rejectPayment(r.reportId)}>
+                              Confirmar rechazo
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+              {paymentReports.length === 0 && (
+                <li className="py-6 text-center text-sm text-alma-text-muted">Sin pagos reportados.</li>
+              )}
+            </ul>
+          </Card>
+
+          {/* Students that need a human decision today — short and human-triaged, not a score */}
+          <Card className="mt-6">
+            <div className="flex items-center gap-2">
+              <AlertOctagon className="h-4 w-4 text-alma-gold" aria-hidden="true" />
+              <h2 className="font-display text-lg text-alma-text">Excepciones — alumnos que requieren atención</h2>
+            </div>
+            <ul className="mt-4 divide-y divide-alma-border">
+              {attentionItems.map((item) => (
+                <li key={item.studentId} className="py-3">
+                  <p className="text-sm font-medium text-alma-text">{item.name}</p>
+                  <p className="text-xs text-alma-text-muted">{item.reason}</p>
+                </li>
+              ))}
+              {attentionItems.length === 0 && (
+                <li className="py-6 text-center text-sm text-alma-text-muted">Nada pendiente hoy.</li>
+              )}
+            </ul>
+          </Card>
+        </div>
+      )}
 
       {tab === 'mostrador' && (
         <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
@@ -650,6 +863,11 @@ export function Gestion() {
                       </Badge>
                     </div>
 
+                    <div className="flex items-center gap-1.5 rounded-lg border border-alma-gold/30 bg-alma-gold/5 px-3 py-2 text-xs font-medium text-alma-gold">
+                      <ListChecks className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      Actuando en nombre de {profile.firstName}
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2 text-xs text-alma-text-muted">
                       <span>{profile.engagement.attendancesLast30Days} clases en 30 días</span>
                       <span>
@@ -735,7 +953,7 @@ export function Gestion() {
                     <div className="rounded-xl border border-alma-border bg-alma-bg p-3.5">
                       <p className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-alma-text-muted uppercase">
                         <ListChecks className="h-3.5 w-3.5" aria-hidden="true" />
-                        Actuar en nombre de {profile.firstName}
+                        Acciones en su nombre
                       </p>
 
                       <div className="mt-2.5 flex flex-col gap-2">
@@ -794,11 +1012,31 @@ export function Gestion() {
                               </option>
                             ))}
                           </select>
+                          {onBehalfMethod === 'QR' && (
+                            <input
+                              type="text"
+                              value={onBehalfTransferRef}
+                              onChange={(e) => setOnBehalfTransferRef(e.target.value)}
+                              placeholder="Referencia de la transferencia (opcional)"
+                              className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+                            />
+                          )}
+                          <input
+                            type="text"
+                            value={onBehalfReceipt}
+                            onChange={(e) => setOnBehalfReceipt(e.target.value)}
+                            placeholder={
+                              onBehalfMethod === 'QR'
+                                ? 'Nombre del archivo del comprobante (recomendado)'
+                                : 'Nombre del archivo del recibo (opcional)'
+                            }
+                            className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+                          />
                           <input
                             type="text"
                             value={onBehalfProof}
                             onChange={(e) => setOnBehalfProof(e.target.value)}
-                            placeholder="Nota de comprobante (opcional)"
+                            placeholder="Nota (opcional)"
                             className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
                           />
                           <input
@@ -907,7 +1145,7 @@ export function Gestion() {
             )}
           </div>
 
-          {/* Class roster + payment review + attention list */}
+          {/* Class roster — attendance for today's live class */}
           <div className="flex flex-col gap-6">
             <Card className="h-fit">
               <div className="flex items-center justify-between">
@@ -952,126 +1190,6 @@ export function Gestion() {
                   <li className="py-6 text-center text-sm text-alma-text-muted">
                     Nadie ha confirmado ni marcado asistencia todavía.
                   </li>
-                )}
-              </ul>
-            </Card>
-
-            {/* Payment reports awaiting Jonathan/Iván's review — the required end-to-end scenario */}
-            <Card className="h-fit">
-              <div className="flex items-center gap-2">
-                <Receipt className="h-4 w-4 text-alma-gold" aria-hidden="true" />
-                <h2 className="font-display text-lg text-alma-text">Pagos por aprobar</h2>
-              </div>
-              <p className="mt-1 text-xs text-alma-text-muted">
-                Reportados por el alumno o por Gestión en su nombre. Aprobar asigna el consecutivo de venta
-                y activa el plan por 30 días desde este momento.
-              </p>
-              <label className="mt-3 flex items-center gap-2 text-xs text-alma-text-muted">
-                Aprueba/rechaza como
-                <input
-                  type="text"
-                  value={approverName}
-                  onChange={(e) => setApproverName(e.target.value)}
-                  className="min-h-[32px] w-28 rounded-lg border border-alma-border bg-alma-bg px-2 text-sm text-alma-text focus:border-alma-gold focus:outline-none"
-                />
-              </label>
-
-              <ul className="mt-4 divide-y divide-alma-border">
-                {paymentReports.map((r) => (
-                  <li key={r.reportId} className="py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-alma-text">
-                          {r.studentName} · {r.planName}
-                        </p>
-                        <p className="text-xs text-alma-text-muted">
-                          {formatCOP(r.amount)} · {PAYMENT_METHOD_LABELS[r.paymentMethod]} · reportado por{' '}
-                          {r.reportedByName} a las {r.reportedAt}
-                          {r.proofNote ? ` · ${r.proofNote}` : ''}
-                        </p>
-                        {r.status === 'APPROVED' && (
-                          <p className="mt-1 text-xs text-alma-gold">
-                            Aprobado por {r.reviewedBy} · consecutivo {r.saleConsecutive}
-                          </p>
-                        )}
-                        {r.status === 'REJECTED' && (
-                          <p className="mt-1 text-xs text-[#e4a3ab]">Rechazado: {r.rejectionReason}</p>
-                        )}
-                      </div>
-                      <Badge tone={PAYMENT_REPORT_TONE[r.status]}>{PAYMENT_REPORT_STATUS_LABELS[r.status]}</Badge>
-                    </div>
-
-                    {r.status === 'PENDING_REVIEW' && (
-                      <div className="mt-2.5 flex flex-col gap-2">
-                        <input
-                          type="text"
-                          value={consecutiveByReport[r.reportId] ?? nextConsecutiveSuggestion()}
-                          onChange={(e) =>
-                            setConsecutiveByReport((prev) => ({ ...prev, [r.reportId]: e.target.value }))
-                          }
-                          placeholder="Consecutivo de venta"
-                          className="min-h-[40px] rounded-lg border border-alma-border bg-alma-bg px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
-                        />
-                        <div className="flex gap-2">
-                          <Button
-                            variant="secondary"
-                            className="flex-1"
-                            onClick={() => approvePayment(r.reportId)}
-                            disabled={reviewingReportId === r.reportId}
-                          >
-                            <Check className="h-4 w-4" aria-hidden="true" />
-                            Aprobar
-                          </Button>
-                          <Button
-                            variant="danger"
-                            className="flex-1"
-                            onClick={() =>
-                              setRejectingReportId(rejectingReportId === r.reportId ? null : r.reportId)
-                            }
-                          >
-                            <X className="h-4 w-4" aria-hidden="true" />
-                            Rechazar
-                          </Button>
-                        </div>
-                        {rejectingReportId === r.reportId && (
-                          <div className="flex flex-col gap-2 rounded-lg border border-alma-wine/40 bg-alma-wine/5 p-2.5 sm:flex-row">
-                            <input
-                              type="text"
-                              value={rejectReason}
-                              onChange={(e) => setRejectReason(e.target.value)}
-                              placeholder="Motivo del rechazo"
-                              className="min-h-[40px] flex-1 rounded-lg border border-alma-border bg-alma-bg px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
-                            />
-                            <Button variant="danger" onClick={() => rejectPayment(r.reportId)}>
-                              Confirmar rechazo
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                ))}
-                {paymentReports.length === 0 && (
-                  <li className="py-6 text-center text-sm text-alma-text-muted">Sin pagos reportados.</li>
-                )}
-              </ul>
-            </Card>
-
-            {/* Students that need a human decision today — short and human-triaged, not a score */}
-            <Card className="h-fit">
-              <div className="flex items-center gap-2">
-                <AlertOctagon className="h-4 w-4 text-alma-gold" aria-hidden="true" />
-                <h2 className="font-display text-lg text-alma-text">Alumnos que requieren atención</h2>
-              </div>
-              <ul className="mt-4 divide-y divide-alma-border">
-                {attentionItems.map((item) => (
-                  <li key={item.studentId} className="py-3">
-                    <p className="text-sm font-medium text-alma-text">{item.name}</p>
-                    <p className="text-xs text-alma-text-muted">{item.reason}</p>
-                  </li>
-                ))}
-                {attentionItems.length === 0 && (
-                  <li className="py-6 text-center text-sm text-alma-text-muted">Nada pendiente hoy.</li>
                 )}
               </ul>
             </Card>

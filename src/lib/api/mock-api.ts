@@ -472,6 +472,8 @@ function performReportPayment(
     classes: input.classes,
     amount: input.amount,
     paymentMethod: input.paymentMethod,
+    transferReference: input.transferReference?.trim() || null,
+    receiptFileName: input.receiptFileName?.trim() || null,
     proofNote: input.proofNote?.trim() || null,
     status: 'PENDING_REVIEW',
     reportedAt: nowTime(),
