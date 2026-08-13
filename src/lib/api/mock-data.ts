@@ -1,5 +1,7 @@
 import type {
   AttendanceRecord,
+  AttentionItem,
+  AuditEntry,
   ClassCategory,
   ClassRegistration,
   ClassStatus,
@@ -8,6 +10,7 @@ import type {
   EngagementInfo,
   PackageInfo,
   PackagePurchase,
+  PaymentReport,
   PointsInfo,
   ProgramName,
   Room,
@@ -243,9 +246,17 @@ export const ACADEMY_SCHEDULE: ScheduledClass[] = [
   }),
 ];
 
-/** Today's live class for Check-in / Reception's roster / the Student "clase de hoy" card. */
+/**
+ * Today's live class — Gestión's manual check-in and the Student "clase de
+ * hoy" card. Only the ID is the source of truth: `mock-api.ts` always looks
+ * this class up fresh from `state.schedule` (never a separately-cloned
+ * copy), so a confirm/cancel here is immediately visible to Gestión/Admin.
+ */
+export const CURRENT_CLASS_ID = 'CL-20260805-1800-TSAL';
+
+/** Read-only convenience reference for fixtures below — never stored in state as-is. */
 export const CURRENT_CLASS: DanceClassInfo =
-  ACADEMY_SCHEDULE.find((c) => c.classId === 'CL-20260805-1800-TSAL')!;
+  ACADEMY_SCHEDULE.find((c) => c.classId === CURRENT_CLASS_ID)!;
 
 const TANGO_BASICO_WED = ACADEMY_SCHEDULE.find((c) => c.classId === 'CL-20260805-1930-TGB2')!;
 const MILONGA_SAT = ACADEMY_SCHEDULE.find((c) => c.classId === 'CL-20260808-1700-MILO')!;
@@ -280,7 +291,7 @@ export interface DemoStudentRecord {
 
 /**
  * Julián is the demo's protagonist student — every screen in the "Alumno"
- * story and most of the reception flow center on him.
+ * story and most of the Gestión flow center on him.
  */
 export const JULIAN: DemoStudentRecord = {
   studentId: 'ST-JULIAN',
@@ -379,7 +390,7 @@ export const JULIAN: DemoStudentRecord = {
   ],
 };
 
-/** Reception search / roster supporting cast — fictional, first names only. */
+/** Gestión search / roster supporting cast — fictional, first names only. */
 export const CAMILA: DemoStudentRecord = {
   studentId: 'ST-CAMILA',
   firstName: 'Camila',
@@ -555,24 +566,36 @@ export const INITIAL_ROOM_BOOKINGS: RoomBooking[] = [
   },
 ];
 
-/** Today's classes, chronological — the operational dataset the director and reception both read. */
-const CLASSES_TODAY: ScheduledClass[] = ACADEMY_SCHEDULE
-  .filter((c) => c.date === DEMO_TODAY)
-  .sort((a, b) => a.startTime.localeCompare(b.startTime));
+/** Today's classes, chronological — the operational dataset Gestión and Admin both read. */
+export function computeClassesToday(schedule: ScheduledClass[]): ScheduledClass[] {
+  return schedule
+    .filter((c) => c.date === DEMO_TODAY)
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+}
 
-/** Room occupancy rollup for today, computed once from CLASSES_TODAY — not a live poll. */
-const ROOM_OCCUPANCY_TODAY: RoomOccupancyToday[] = ROOMS.map((room) => {
-  const classes = CLASSES_TODAY.filter((c) => c.roomId === room.roomId);
-  const peak = classes.reduce((max, c) => Math.max(max, c.confirmedCount / c.capacity), 0);
-  return {
-    roomId: room.roomId,
-    name: room.name,
-    comfortableCapacity: room.capacity,
-    classesToday: classes.length,
-    peakOccupancy: peak,
-    nearCapacity: peak >= 0.85,
-  };
-});
+/**
+ * Room occupancy rollup for today, derived from the live schedule — never a
+ * separately-tracked snapshot, so a confirm/cancel is reflected the next
+ * time this is computed (Admin calls it fresh on every `getDashboard()`).
+ */
+export function computeRoomOccupancyToday(schedule: ScheduledClass[]): RoomOccupancyToday[] {
+  const classesToday = computeClassesToday(schedule);
+  return ROOMS.map((room) => {
+    const classes = classesToday.filter((c) => c.roomId === room.roomId);
+    const peak = classes.reduce((max, c) => Math.max(max, c.confirmedCount / c.capacity), 0);
+    return {
+      roomId: room.roomId,
+      name: room.name,
+      comfortableCapacity: room.capacity,
+      classesToday: classes.length,
+      peakOccupancy: peak,
+      nearCapacity: peak >= 0.85,
+    };
+  });
+}
+
+const CLASSES_TODAY = computeClassesToday(ACADEMY_SCHEDULE);
+const ROOM_OCCUPANCY_TODAY = computeRoomOccupancyToday(ACADEMY_SCHEDULE);
 
 /**
  * Director dashboard fixture (Iván). Plausible, round, clearly simulated
@@ -618,9 +641,17 @@ export const DIRECTOR_DASHBOARD: DirectorDashboard = {
   ],
 };
 
-/** Students reception should look out for today — a short, human-triaged list, not a score. */
-export const ATTENTION_ITEMS = [
+/** Students Gestión should look out for today — a short, human-triaged list, not a score. */
+export const ATTENTION_ITEMS: AttentionItem[] = [
   { studentId: ANDRES.studentId, name: 'Andrés', reason: 'Sin plan activo · 24 días sin venir' },
   { studentId: 'ST-VALENTINA', name: 'Valentina', reason: 'No llegó a su última clase confirmada' },
-  { studentId: CAMILA.studentId, name: 'Camila', reason: 'Paquete vence en 23 días · sin renovación en curso' },
+  { studentId: CAMILA.studentId, name: 'Camila', reason: 'Paquete vence en 23 días · sin pago reportado' },
 ];
+
+/**
+ * Both start empty — the demo's two required scenarios (payment report →
+ * approval, and confirm/cancel) are meant to be performed live, not shown
+ * pre-seeded. See PROJECT_CONTEXT.md (backend repo) decisions #23/#27.
+ */
+export const INITIAL_PAYMENT_REPORTS: PaymentReport[] = [];
+export const INITIAL_AUDIT_TRAIL: AuditEntry[] = [];

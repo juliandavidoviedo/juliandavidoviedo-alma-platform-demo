@@ -1,10 +1,11 @@
 import type {
-  AttendanceIntentStatus,
+  ActorKind,
+  ApprovePaymentInput,
   AttentionItem,
+  AuditEntry,
   CancelClassResult,
-  CheckInScenario,
-  CheckInSimulateResult,
   ClassRegistration,
+  ClassRestorationReason,
   ClassRoster,
   ConfirmAttendanceResult,
   ConfirmTeacherResult,
@@ -13,14 +14,21 @@ import type {
   CreateStudentInput,
   CreateStudentResult,
   DirectorDashboard,
+  EnrollmentInput,
+  EnrollmentResult,
   ManualCheckInResult,
+  PackageInfo,
+  PackagePurchase,
   PaymentMethod,
+  PaymentReport,
   ReceptionSummary,
-  RenewalMethod,
-  RenewalRequest,
-  RequestRenewalResult,
+  RejectPaymentInput,
+  ReportPaymentInput,
+  ReportPaymentResult,
+  RestoreClassInput,
+  RestoreClassResult,
+  ReviewPaymentResult,
   RoomBooking,
-  RotatingCode,
   ScheduledClass,
   SearchResult,
   SellPackageInput,
@@ -28,7 +36,17 @@ import type {
   StudentSummary,
   UpcomingClassStatus,
 } from './types';
-import { ATTENTION_ITEMS, DEMO_TODAY, DIRECTOR_DASHBOARD, JULIAN, ROOMS } from './mock-data';
+import { CLASS_RESTORATION_LABELS } from './types';
+import {
+  ATTENTION_ITEMS,
+  computeClassesToday,
+  computeRoomOccupancyToday,
+  CURRENT_CLASS_ID,
+  DEMO_TODAY,
+  DIRECTOR_DASHBOARD,
+  JULIAN,
+  ROOMS,
+} from './mock-data';
 import { getState, setState, type DemoState } from './store';
 import type { DemoStudentRecord } from './mock-data';
 
@@ -41,6 +59,18 @@ function nowTime(): string {
   return new Date().toTimeString().slice(0, 5);
 }
 
+/**
+ * Today's live class, looked up fresh from `state.schedule` every time —
+ * never a separately-cloned copy. This is what makes a confirm/cancel on
+ * today's class immediately visible to Gestión and Admin: there is only
+ * ever one record of it.
+ */
+function currentClass(state: DemoState): ScheduledClass {
+  const found = state.schedule.find((c) => c.classId === CURRENT_CLASS_ID);
+  if (!found) throw new Error('NOT_FOUND: no existe la clase de hoy en el horario');
+  return found;
+}
+
 function toStudentSummary(state: DemoState, record: DemoStudentRecord): StudentSummary {
   const registrationFor = (classId: string) =>
     state.roster.find((r) => r.studentId === record.studentId && r.classId === classId);
@@ -49,6 +79,8 @@ function toStudentSummary(state: DemoState, record: DemoStudentRecord): StudentS
     ...cls,
     registrationStatus: registrationFor(cls.classId)?.status ?? null,
   }));
+
+  const live = currentClass(state);
 
   return {
     studentId: record.studentId,
@@ -65,9 +97,15 @@ function toStudentSummary(state: DemoState, record: DemoStudentRecord): StudentS
     upcomingClasses,
     attendanceHistory: record.attendanceHistory,
     todayClass: {
-      danceClass: state.currentClass,
-      registrationStatus: registrationFor(state.currentClass.classId)?.status ?? null,
+      danceClass: live,
+      registrationStatus: registrationFor(live.classId)?.status ?? null,
     },
+    paymentReports: state.paymentReports
+      .filter((r) => r.studentId === record.studentId)
+      .sort((a, b) => b.reportedAt.localeCompare(a.reportedAt)),
+    auditTrail: state.auditTrail
+      .filter((a) => a.actedForStudentId === record.studentId)
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp)),
   };
 }
 
@@ -112,12 +150,31 @@ function nextRegistrationId(state: DemoState): string {
   return `RG-${String(max + 1).padStart(6, '0')}`;
 }
 
+function nextReportId(state: DemoState): string {
+  const max = state.paymentReports.reduce((acc, r) => {
+    const n = Number(r.reportId.split('-')[1] ?? 0);
+    return Number.isFinite(n) ? Math.max(acc, n) : acc;
+  }, 0);
+  return `PM-${String(max + 1).padStart(4, '0')}`;
+}
+
+function nextAuditId(state: DemoState): string {
+  return `AU-${String(state.auditTrail.length + 1).padStart(4, '0')}`;
+}
+
+/** Every on-behalf or operational action is recorded here — never silently attributed to the student. */
+function pushAudit(state: DemoState, entry: Omit<AuditEntry, 'entryId' | 'timestamp'>): AuditEntry[] {
+  const full: AuditEntry = { ...entry, entryId: nextAuditId(state), timestamp: nowTime() };
+  return [full, ...state.auditTrail];
+}
+
 /**
  * Bumps how many seats are shown reserved for one of the student's OWN
  * upcoming-class cards — a cheap stand-in for "aforo" without normalizing
  * classes into a shared, cross-student collection. Each student's copy of a
  * class only reflects their own reservation traffic, not everyone else's;
  * fine for a demo, called out as a simplification in the delivery notes.
+ * A no-op when `classId` isn't on the student's own agenda.
  */
 function bumpOwnUpcomingCount(record: DemoStudentRecord, classId: string, delta: number): DemoStudentRecord {
   return {
@@ -129,19 +186,42 @@ function bumpOwnUpcomingCount(record: DemoStudentRecord, classId: string, delta:
 }
 
 /**
- * Check-in — always today's live class (state.currentClass). If the student
- * already has a CONFIRMED (or NO_SHOW) registration for it, it is upgraded
- * in place to ATTENDED — confirming ahead of time and then checking in is
- * the same seat, not two events. With no prior registration, this creates a
- * walk-in ATTENDED entry directly, same as a student who never confirmed and
- * just showed up.
+ * Bumps the shared, authoritative counts on `state.schedule` — what Gestión
+ * and Admin both read. A no-op when `classId` isn't in this week's schedule
+ * (e.g. a future-week instance on a student's personal agenda only).
+ */
+function bumpScheduleCounts(
+  state: DemoState,
+  classId: string,
+  deltaConfirmed: number,
+  deltaCancelled: number,
+): ScheduledClass[] {
+  return state.schedule.map((c) =>
+    c.classId === classId
+      ? {
+          ...c,
+          confirmedCount: Math.max(0, c.confirmedCount + deltaConfirmed),
+          cancelledCount: Math.max(0, c.cancelledCount + deltaCancelled),
+        }
+      : c,
+  );
+}
+
+/**
+ * Manual attendance validation — always today's live class. Distinct from
+ * confirming (intent): this is Gestión physically marking someone present
+ * at the door, no QR involved. If the student already has a CONFIRMED (or
+ * NO_SHOW) registration for it, it is upgraded in place to ATTENDED —
+ * confirming ahead of time and then being checked in is the same seat, not
+ * two events. With no prior registration, this creates a walk-in ATTENDED
+ * entry directly.
  */
 function performCheckIn(
   state: DemoState,
   studentId: string,
 ): { next: DemoState; result: ManualCheckInResult } {
   const record = requireStudent(state, studentId);
-  const classId = state.currentClass.classId;
+  const classId = CURRENT_CLASS_ID;
   const existing = findRegistration(state, studentId, classId);
 
   if (existing?.status === 'ATTENDED') {
@@ -162,6 +242,7 @@ function performCheckIn(
   const time = nowTime();
   const points = hasBalance ? 10 : 0;
   const consumptionType = hasBalance ? 'PAQUETE' : 'SIN_PAQUETE';
+  const live = currentClass(state);
 
   const updatedRecord: DemoStudentRecord = {
     ...record,
@@ -173,8 +254,8 @@ function performCheckIn(
       {
         attendanceId,
         date: DEMO_TODAY,
-        className: state.currentClass.name,
-        teacher: state.currentClass.teacher,
+        className: live.name,
+        teacher: live.teacher,
         consumptionType,
         points,
       },
@@ -210,10 +291,6 @@ function performCheckIn(
     ...state,
     students: { ...state.students, [studentId]: updatedRecord },
     roster: nextRoster,
-    currentClass: {
-      ...state.currentClass,
-      confirmedCount: nextRoster.filter((r) => r.classId === classId && r.status === 'ATTENDED').length,
-    },
   };
 
   return {
@@ -230,11 +307,20 @@ function performCheckIn(
   };
 }
 
-/** Reserves a seat for ANY class — today's or a future one on the student's agenda. */
+interface Actor {
+  actedBy: ActorKind;
+  actedByName: string;
+  reason?: string;
+}
+
+const SELF: Actor = { actedBy: 'STUDENT', actedByName: 'Alumno' };
+
+/** Reserves a seat for ANY class — today's or a future one on the student's agenda. Gestión may do this on the student's behalf. */
 function performConfirm(
   state: DemoState,
   studentId: string,
   classId: string,
+  actor: Actor,
 ): { next: DemoState; result: ConfirmAttendanceResult } {
   const record = requireStudent(state, studentId);
   const existing = findRegistration(state, studentId, classId);
@@ -275,20 +361,31 @@ function performConfirm(
         },
       ];
 
-  const isTodaysClass = classId === state.currentClass.classId;
-  const updatedRecord =
-    !holdsSeat && !isTodaysClass ? bumpOwnUpcomingCount(record, classId, 1) : record;
+  const updatedRecord = holdsSeat ? record : bumpOwnUpcomingCount(record, classId, 1);
+  const schedule = holdsSeat ? state.schedule : bumpScheduleCounts(state, classId, 1, 0);
+  const auditTrail = pushAudit(state, {
+    action: 'class.confirm',
+    actedBy: actor.actedBy,
+    actedByName: actor.actedByName,
+    actedForStudentId: studentId,
+    actedForName: record.firstName,
+    reason: actor.reason ?? null,
+  });
 
   return {
     next: {
       ...state,
       roster: nextRoster,
+      schedule,
       students: updatedRecord === record ? state.students : { ...state.students, [studentId]: updatedRecord },
+      auditTrail,
     },
     result: {
       ok: true,
       status: 'CONFIRMED',
-      message: 'Cupo reservado (simulación). Puedes cancelar hasta 30 minutos antes de la clase.',
+      message: actor.actedBy === 'GESTION'
+        ? `Cupo reservado en nombre de ${record.firstName} (simulación). Puede cancelar hasta 30 minutos antes.`
+        : 'Cupo reservado (simulación). Puedes cancelar hasta 30 minutos antes de la clase.',
     },
   };
 }
@@ -297,6 +394,7 @@ function performCancel(
   state: DemoState,
   studentId: string,
   classId: string,
+  actor: Actor,
 ): { next: DemoState; result: ConfirmAttendanceResult } {
   const record = requireStudent(state, studentId);
   const existing = findRegistration(state, studentId, classId);
@@ -331,47 +429,232 @@ function performCancel(
       : r,
   );
 
-  const isTodaysClass = classId === state.currentClass.classId;
-  const updatedRecord = heldSeat && !isTodaysClass ? bumpOwnUpcomingCount(record, classId, -1) : record;
+  const updatedRecord = heldSeat ? bumpOwnUpcomingCount(record, classId, -1) : record;
+  const schedule = heldSeat ? bumpScheduleCounts(state, classId, -1, 1) : state.schedule;
+  const auditTrail = pushAudit(state, {
+    action: 'class.cancel',
+    actedBy: actor.actedBy,
+    actedByName: actor.actedByName,
+    actedForStudentId: studentId,
+    actedForName: record.firstName,
+    reason: actor.reason ?? null,
+  });
 
   return {
     next: {
       ...state,
       roster: nextRoster,
+      schedule,
       students: updatedRecord === record ? state.students : { ...state.students, [studentId]: updatedRecord },
+      auditTrail,
     },
     result: {
       ok: true,
       status: 'CANCELLED',
-      message: 'Reserva cancelada (simulación). Recuerda: se permite hasta 30 minutos antes de la clase.',
+      message: actor.actedBy === 'GESTION'
+        ? `Reserva cancelada en nombre de ${record.firstName} (simulación).`
+        : 'Reserva cancelada (simulación). Recuerda: se permite hasta 30 minutos antes de la clase.',
     },
   };
 }
 
-function performRequestRenewal(
+/** Student or Gestión reports a payment — always starts PENDING_REVIEW, never activates a plan by itself. */
+function performReportPayment(
   state: DemoState,
-  studentId: string,
-  method: RenewalMethod,
-): { next: DemoState; result: RequestRenewalResult } {
-  const record = requireStudent(state, studentId);
-  const request: RenewalRequest = {
-    requestId: `RN-${String(state.renewalRequests.length + 1).padStart(4, '0')}`,
-    studentId,
+  input: ReportPaymentInput,
+): { next: DemoState; result: ReportPaymentResult } {
+  const record = requireStudent(state, input.studentId);
+  const report: PaymentReport = {
+    reportId: nextReportId(state),
+    studentId: input.studentId,
     studentName: record.firstName,
-    method,
-    requestedAt: nowTime(),
-    status: 'PENDIENTE',
+    planName: input.planName,
+    classes: input.classes,
+    amount: input.amount,
+    paymentMethod: input.paymentMethod,
+    proofNote: input.proofNote?.trim() || null,
+    status: 'PENDING_REVIEW',
+    reportedAt: nowTime(),
+    reportedBy: input.actedBy,
+    reportedByName: input.actedByName,
+    reviewedBy: null,
+    reviewedAt: null,
+    rejectionReason: null,
+    saleConsecutive: null,
   };
 
+  const auditTrail = pushAudit(state, {
+    action: 'payment.report',
+    actedBy: input.actedBy,
+    actedByName: input.actedByName,
+    actedForStudentId: input.studentId,
+    actedForName: record.firstName,
+    reason: input.reason ?? null,
+  });
+
   return {
-    next: { ...state, renewalRequests: [request, ...state.renewalRequests] },
+    next: { ...state, paymentReports: [report, ...state.paymentReports], auditTrail },
     result: {
       ok: true,
-      request,
-      message:
-        method === 'ALARMA_RECEPCION'
-          ? 'Aviso enviado a recepción (simulación). Te van a contactar para renovar tu plan.'
-          : 'Notificación de pago enviada (simulación). Recepción confirmará tu transferencia y activará tu paquete.',
+      report,
+      message: input.actedBy === 'GESTION'
+        ? `Pago reportado en nombre de ${record.firstName} (simulación). Queda pendiente de revisión.`
+        : 'Pago reportado (simulación). Jonathan o Iván lo revisan y activan tu plan.',
+    },
+  };
+}
+
+/** Approving assigns the sale consecutive and starts the plan: exactly 30 days from this moment. */
+function performApprovePayment(
+  state: DemoState,
+  input: ApprovePaymentInput,
+): { next: DemoState; result: ReviewPaymentResult } {
+  const report = state.paymentReports.find((r) => r.reportId === input.reportId);
+  if (!report) throw new Error(`NOT_FOUND: no existe el reporte "${input.reportId}"`);
+  if (report.status !== 'PENDING_REVIEW') {
+    return { next: state, result: { ok: true, report, message: 'Ese reporte ya fue procesado (simulación).' } };
+  }
+  if (!input.saleConsecutive.trim()) {
+    throw new Error('VALIDATION_ERROR: falta el consecutivo de venta');
+  }
+
+  const record = requireStudent(state, report.studentId);
+  const approvedAt = nowTime();
+  const expiresOn = addDays(DEMO_TODAY, 30);
+
+  const updatedReport: PaymentReport = {
+    ...report,
+    status: 'APPROVED',
+    reviewedBy: input.approverName,
+    reviewedAt: approvedAt,
+    saleConsecutive: input.saleConsecutive.trim(),
+  };
+
+  const packageId = `PQ-${Math.floor(1000 + Math.random() * 9000)}`;
+  const newPackage: PackageInfo = {
+    packageId,
+    name: report.planName,
+    totalClasses: report.classes,
+    balance: report.classes,
+    expiresOn,
+    daysUntilExpiry: 30,
+  };
+  const purchase: PackagePurchase = {
+    packageId,
+    name: report.planName,
+    purchaseDate: DEMO_TODAY,
+    expiresOn,
+    paymentMethod: report.paymentMethod,
+    amount: report.amount,
+    classesIncluded: report.classes,
+    classesRemaining: report.classes,
+  };
+  const updatedRecord: DemoStudentRecord = {
+    ...record,
+    package: newPackage,
+    packageHistory: [purchase, ...record.packageHistory],
+  };
+
+  const auditTrail = pushAudit(state, {
+    action: 'payment.approve',
+    actedBy: 'GESTION',
+    actedByName: input.approverName,
+    actedForStudentId: report.studentId,
+    actedForName: record.firstName,
+    reason: `Consecutivo ${updatedReport.saleConsecutive}`,
+  });
+
+  return {
+    next: {
+      ...state,
+      paymentReports: state.paymentReports.map((r) => (r.reportId === report.reportId ? updatedReport : r)),
+      students: { ...state.students, [report.studentId]: updatedRecord },
+      auditTrail,
+    },
+    result: {
+      ok: true,
+      report: updatedReport,
+      message: `Pago aprobado (simulación). Plan activo por 30 días, vence el ${expiresOn}.`,
+    },
+  };
+}
+
+function performRejectPayment(
+  state: DemoState,
+  input: RejectPaymentInput,
+): { next: DemoState; result: ReviewPaymentResult } {
+  const report = state.paymentReports.find((r) => r.reportId === input.reportId);
+  if (!report) throw new Error(`NOT_FOUND: no existe el reporte "${input.reportId}"`);
+  if (report.status !== 'PENDING_REVIEW') {
+    return { next: state, result: { ok: true, report, message: 'Ese reporte ya fue procesado (simulación).' } };
+  }
+  if (!input.reason.trim()) throw new Error('VALIDATION_ERROR: se requiere un motivo de rechazo');
+
+  const record = requireStudent(state, report.studentId);
+  const updatedReport: PaymentReport = {
+    ...report,
+    status: 'REJECTED',
+    reviewedBy: input.approverName,
+    reviewedAt: nowTime(),
+    rejectionReason: input.reason.trim(),
+  };
+
+  const auditTrail = pushAudit(state, {
+    action: 'payment.reject',
+    actedBy: 'GESTION',
+    actedByName: input.approverName,
+    actedForStudentId: report.studentId,
+    actedForName: record.firstName,
+    reason: input.reason.trim(),
+  });
+
+  return {
+    next: {
+      ...state,
+      paymentReports: state.paymentReports.map((r) => (r.reportId === report.reportId ? updatedReport : r)),
+      auditTrail,
+    },
+    result: { ok: true, report: updatedReport, message: 'Pago rechazado (simulación). El alumno puede reportar de nuevo.' },
+  };
+}
+
+/** Exceptional, Gestión-only, and only within the current plan's validity window. */
+function performRestoreClass(
+  state: DemoState,
+  input: RestoreClassInput,
+): { next: DemoState; result: RestoreClassResult } {
+  const record = requireStudent(state, input.studentId);
+  if (!record.package) {
+    throw new Error('VALIDATION_ERROR: el alumno no tiene un plan activo para restaurar una clase');
+  }
+  if (record.package.expiresOn < DEMO_TODAY) {
+    throw new Error('VALIDATION_ERROR: el plan ya venció — la restauración solo aplica dentro de su vigencia');
+  }
+  if (!input.note.trim()) {
+    throw new Error('VALIDATION_ERROR: se requiere una nota para restaurar la clase');
+  }
+
+  const newBalance = record.package.balance + 1;
+  const updatedRecord: DemoStudentRecord = {
+    ...record,
+    package: { ...record.package, balance: newBalance },
+  };
+
+  const auditTrail = pushAudit(state, {
+    action: 'class.restore',
+    actedBy: 'GESTION',
+    actedByName: input.actedByName,
+    actedForStudentId: input.studentId,
+    actedForName: record.firstName,
+    reason: `${CLASS_RESTORATION_LABELS[input.reason]}: ${input.note.trim()}`,
+  });
+
+  return {
+    next: { ...state, students: { ...state.students, [input.studentId]: updatedRecord }, auditTrail },
+    result: {
+      ok: true,
+      availableClasses: newBalance,
+      message: `Clase restaurada (simulación). Ahora tiene ${newBalance} disponibles.`,
     },
   };
 }
@@ -399,11 +682,54 @@ function nextBookingId(state: DemoState): string {
   return `RB-${String(max + 1).padStart(4, '0')}`;
 }
 
+/** Public self-service enrollment — no login. Consent choices and EPS are accepted but, like the rest of this demo, never sent anywhere real. */
+function performEnroll(state: DemoState, input: EnrollmentInput): { next: DemoState; result: EnrollmentResult } {
+  const studentId = nextStudentId(state);
+  const record: DemoStudentRecord = {
+    studentId,
+    firstName: input.firstName,
+    level: input.level,
+    danceRole: 'AMBOS',
+    program: 'ALMA_OPEN',
+    status: 'ACTIVO',
+    package: null,
+    packageHistory: [],
+    points: {
+      balance: 0,
+      tier: 'BRONCE',
+      tierLabel: 'Bronce',
+      nextTier: 'Plata',
+      pointsToNextTier: 100,
+      progress: 0,
+    },
+    streak: { consecutiveWeeks: 0 },
+    engagement: { status: 'ESTABLE', attendancesLast30Days: 0, daysSinceLastAttendance: null, noShowCount: 0 },
+    upcomingClasses: [],
+    attendanceHistory: [],
+  };
+
+  const who = input.isMinor ? `${input.firstName} (inscrito por ${input.guardianName ?? 'su acudiente'})` : input.firstName;
+
+  return {
+    next: { ...state, students: { ...state.students, [studentId]: record } },
+    result: {
+      ok: true,
+      studentId,
+      message: `Inscripción recibida (simulación) para ${who}. Un asesor confirmará plan y horario.`,
+    },
+  };
+}
+
 export const api = {
   admin: {
     async getDashboard(): Promise<DirectorDashboard> {
       await delay();
-      return DIRECTOR_DASHBOARD;
+      const state = getState();
+      return {
+        ...DIRECTOR_DASHBOARD,
+        classesToday: computeClassesToday(state.schedule),
+        roomOccupancyToday: computeRoomOccupancyToday(state.schedule),
+      };
     },
   },
 
@@ -469,10 +795,6 @@ export const api = {
       setState((prev) => ({
         ...prev,
         students: { ...prev.students, [input.studentId]: updatedRecord },
-        // Selling a package resolves whatever pending renewal request brought the student in.
-        renewalRequests: prev.renewalRequests.map((r) =>
-          r.studentId === input.studentId && r.status === 'PENDIENTE' ? { ...r, status: 'CONTACTADO' } : r,
-        ),
       }));
 
       return {
@@ -491,35 +813,47 @@ export const api = {
       return result;
     },
 
+    /** Gestión confirming/cancelling a class on the student's behalf — same core as the student's own action, always audited. */
+    async confirmClassFor(studentId: string, classId: string, actedByName: string, reason?: string): Promise<ConfirmAttendanceResult> {
+      await delay(300);
+      const { next, result } = performConfirm(getState(), studentId, classId, { actedBy: 'GESTION', actedByName, reason });
+      setState(() => next);
+      return result;
+    },
+
+    async cancelClassFor(studentId: string, classId: string, actedByName: string, reason?: string): Promise<ConfirmAttendanceResult> {
+      await delay(300);
+      const { next, result } = performCancel(getState(), studentId, classId, { actedBy: 'GESTION', actedByName, reason });
+      setState(() => next);
+      return result;
+    },
+
+    async restoreClass(input: RestoreClassInput): Promise<RestoreClassResult> {
+      await delay(400);
+      const { next, result } = performRestoreClass(getState(), input);
+      setState(() => next);
+      return result;
+    },
+
     async getClassRoster(): Promise<ClassRoster> {
       await delay(250);
       const state = getState();
+      const live = currentClass(state);
       return {
-        danceClass: state.currentClass,
-        registrations: state.roster.filter((r) => r.classId === state.currentClass.classId),
+        danceClass: live,
+        registrations: state.roster.filter((r) => r.classId === live.classId),
       };
     },
 
-    async getRenewalRequests(): Promise<RenewalRequest[]> {
-      await delay(250);
-      return getState().renewalRequests;
-    },
-
-    /** Short, human-triaged list of students reception should look out for today. */
+    /** Short, human-triaged list of students Gestión should look out for today. */
     async getAttentionItems(): Promise<AttentionItem[]> {
       await delay(220);
       return ATTENTION_ITEMS;
     },
 
-    async resolveRenewalRequest(requestId: string): Promise<{ ok: true }> {
-      await delay(300);
-      setState((prev) => ({
-        ...prev,
-        renewalRequests: prev.renewalRequests.map((r) =>
-          r.requestId === requestId ? { ...r, status: 'CONTACTADO' } : r,
-        ),
-      }));
-      return { ok: true };
+    async getPaymentReports(): Promise<PaymentReport[]> {
+      await delay(280);
+      return getState().paymentReports;
     },
 
     /** New alumno, front-desk side. PIN returned once, same rule as the real backend (docs/03). */
@@ -559,15 +893,19 @@ export const api = {
 
       setState((prev) => ({ ...prev, students: { ...prev.students, [studentId]: record } }));
 
+      const message = `¡Bienvenid@ a Alma de Tango, ${input.firstName}! ` +
+        `Ya puedes ver tus clases y puntos en nuestro portal. ` +
+        `Entra con tu teléfono y este PIN: ${pin}`;
+
       return {
         ok: true,
         studentId,
         pin,
-        message: `Alumno creado (simulación). PIN ${pin} — muéstralo una sola vez, no se puede volver a consultar.`,
+        message,
       };
     },
 
-    /** The week's class catalog, sorted chronologically. */
+    /** The week's class catalog, sorted chronologically — the single source of truth Gestión and Admin both read. */
     async getSchedule(): Promise<ScheduledClass[]> {
       await delay(300);
       return [...getState().schedule].sort((a, b) =>
@@ -627,23 +965,22 @@ export const api = {
       };
     },
 
-    /** Same-day operational snapshot — hours, students, occupancy, pending renewals. */
+    /** Same-day operational snapshot — hours, students, occupancy, pending payments. */
     async getSummary(): Promise<ReceptionSummary> {
       await delay(300);
       const state = getState();
       const active = state.schedule.filter((c) => c.status !== 'CANCELADA');
       const today = active.filter((c) => c.date === DEMO_TODAY);
       const totalOccupancy = active.reduce((acc, c) => acc + c.confirmedCount / c.capacity, 0);
+      const live = currentClass(state);
 
       return {
         classesToday: today.length,
         classesThisWeek: active.length,
         hoursThisWeek: active.reduce((acc, c) => acc + hoursBetween(c.startTime, c.endTime), 0),
         activeStudents: Object.values(state.students).filter((s) => s.status === 'ACTIVO').length,
-        checkInsToday: state.roster.filter(
-          (r) => r.classId === state.currentClass.classId && r.status === 'ATTENDED',
-        ).length,
-        pendingRenewals: state.renewalRequests.filter((r) => r.status === 'PENDIENTE').length,
+        checkInsToday: state.roster.filter((r) => r.classId === live.classId && r.status === 'ATTENDED').length,
+        pendingPayments: state.paymentReports.filter((r) => r.status === 'PENDING_REVIEW').length,
         averageOccupancy: active.length ? totalOccupancy / active.length : 0,
       };
     },
@@ -703,7 +1040,7 @@ export const api = {
     /** Reserves a seat for any class on the student's own agenda — today's live class or a future one. */
     async confirmClass(classId: string, studentId: string = JULIAN.studentId): Promise<ConfirmAttendanceResult> {
       await delay(300);
-      const { next, result } = performConfirm(getState(), studentId, classId);
+      const { next, result } = performConfirm(getState(), studentId, classId, SELF);
       setState(() => next);
       return result;
     },
@@ -715,94 +1052,45 @@ export const api = {
      */
     async cancelClass(classId: string, studentId: string = JULIAN.studentId): Promise<ConfirmAttendanceResult> {
       await delay(300);
-      const { next, result } = performCancel(getState(), studentId, classId);
-      setState(() => next);
-      return result;
-    },
-
-    async requestRenewal(
-      method: RenewalMethod,
-      studentId: string = JULIAN.studentId,
-    ): Promise<RequestRenewalResult> {
-      await delay(350);
-      const { next, result } = performRequestRenewal(getState(), studentId, method);
+      const { next, result } = performCancel(getState(), studentId, classId, SELF);
       setState(() => next);
       return result;
     },
   },
 
-  checkIn: {
-    async getRotatingCode(): Promise<RotatingCode> {
-      await delay(150);
-      const state = getState();
-      const windowSeconds = 90;
-      const secondsIntoWindow = Math.floor(Date.now() / 1000) % windowSeconds;
-      const secondsRemaining = windowSeconds - secondsIntoWindow;
-      const seed = Math.floor(Date.now() / 1000 / windowSeconds);
-      const code = String((seed * 9301 + 49297) % 1_000_000).padStart(6, '0');
-
-      return {
-        code,
-        secondsRemaining,
-        classInProgress: {
-          classId: state.currentClass.classId,
-          name: state.currentClass.name,
-          teacher: state.currentClass.teacher,
-          startTime: state.currentClass.startTime,
-          roomName: state.currentClass.roomName,
-          floor: state.currentClass.floor,
-        },
-      };
+  /** Payment report → review → activation. Shared by Student (self) and Gestión (on behalf). */
+  payments: {
+    async report(input: ReportPaymentInput): Promise<ReportPaymentResult> {
+      await delay(400);
+      const { next, result } = performReportPayment(getState(), input);
+      setState(() => next);
+      return result;
     },
 
-    /**
-     * Presenter-controlled scenario selector for the check-in screen.
-     *
-     * Only SUCCESS mutates shared state (it is Julián's own QR moment, so the
-     * balance updates for real and the Student screen reflects it). The other
-     * two scenarios are illustrative snapshots of what those outcomes look
-     * like — they exist so a presenter can show all three without needing
-     * three separately staged students. See README "Limitaciones conocidas".
-     */
-    async simulate(scenario: CheckInScenario): Promise<CheckInSimulateResult> {
-      await delay(600);
-
-      if (scenario === 'ALREADY_CHECKED_IN') {
-        return {
-          scenario,
-          ok: true,
-          message: 'Ya registraste esta clase (simulación) — no se descuenta dos veces.',
-        };
-      }
-
-      if (scenario === 'NO_PACKAGE') {
-        return {
-          scenario,
-          ok: true,
-          message:
-            'Registrado sin paquete (simulación). No se bloquea la entrada: recepción lo resuelve en el mostrador.',
-          remainingClasses: 0,
-        };
-      }
-
-      const state = getState();
-      const before = requireStudent(state, JULIAN.studentId);
-      const { next, result } = performCheckIn(state, JULIAN.studentId);
+    async approve(input: ApprovePaymentInput): Promise<ReviewPaymentResult> {
+      await delay(400);
+      const { next, result } = performApprovePayment(getState(), input);
       setState(() => next);
+      return result;
+    },
 
-      const hitStreakMilestone = before.streak.consecutiveWeeks === 3;
+    async reject(input: RejectPaymentInput): Promise<ReviewPaymentResult> {
+      await delay(350);
+      const { next, result } = performRejectPayment(getState(), input);
+      setState(() => next);
+      return result;
+    },
+  },
 
-      return {
-        scenario,
-        ok: true,
-        message: `¡Listo, Julián! Check-in confirmado (simulación). Te quedan ${result.remainingClasses} clases.`,
-        attendanceId: result.attendanceId,
-        className: state.currentClass.name,
-        remainingClasses: result.remainingClasses,
-        bonus: hitStreakMilestone ? { label: '¡4 semanas seguidas! +25 puntos (simulación)' } : null,
-      };
+  /** Public self-service enrollment — no login required. */
+  public: {
+    async enroll(input: EnrollmentInput): Promise<EnrollmentResult> {
+      await delay(500);
+      const { next, result } = performEnroll(getState(), input);
+      setState(() => next);
+      return result;
     },
   },
 };
 
-export type { DemoStudentRecord, PaymentMethod, AttendanceIntentStatus };
+export type { DemoStudentRecord, PaymentMethod, ActorKind, ClassRestorationReason };

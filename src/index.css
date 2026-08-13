@@ -43,3 +43,44 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/*
+ * Alma loading feedback (AlmaLoader): a thin bar with a minimalist dancer
+ * traveling along it. The fill sweeps left-to-right and the dancer glyph
+ * rides its leading edge, looping — a stand-in for real progress on a
+ * simulated network delay, not a measured percentage.
+ */
+@keyframes alma-loader-sweep {
+  0% { width: 6%; }
+  50% { width: 92%; }
+  100% { width: 6%; }
+}
+
+@keyframes alma-loader-travel {
+  0% { left: 0%; transform: translate(-50%, -50%); }
+  50% { left: 92%; transform: translate(-50%, -50%); }
+  100% { left: 0%; transform: translate(-50%, -50%); }
+}
+
+.alma-loader-fill {
+  animation: alma-loader-sweep 1.8s ease-in-out infinite;
+}
+
+.alma-loader-dancer {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  transform: translate(-50%, -50%);
+  animation: alma-loader-travel 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alma-loader-fill {
+    animation: none;
+    width: 45%;
+  }
+  .alma-loader-dancer {
+    animation: none;
+    left: 45%;
+  }
+}

@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from 'react';
-import type { ClassRegistration, DanceClassInfo, RenewalRequest, RoomBooking, ScheduledClass } from './types';
+import type { AuditEntry, ClassRegistration, PaymentReport, RoomBooking, ScheduledClass } from './types';
 import {
   ACADEMY_SCHEDULE,
-  CURRENT_CLASS,
+  INITIAL_AUDIT_TRAIL,
+  INITIAL_PAYMENT_REPORTS,
   INITIAL_ROOM_BOOKINGS,
   INITIAL_ROSTER,
   INITIAL_STUDENTS,
@@ -19,24 +20,31 @@ import {
  * UI components never touch this module directly. They call `api.*` (in
  * `mock-api.ts`) and read state through `useDemoState()` below, which is the
  * same shape a real API client + a query cache would present later.
+ *
+ * `schedule` is the single source of truth for every class occurrence,
+ * including "today's" — there is deliberately no separate `currentClass`
+ * field. A second, independently-cloned copy of the same class previously
+ * let a confirm/cancel go unseen by Gestión/Admin; `mock-api.ts` now always
+ * looks today's class up fresh from `schedule` (see `CURRENT_CLASS_ID` in
+ * `mock-data.ts`).
  */
 export interface DemoState {
   students: Record<string, DemoStudentRecord>;
   roster: ClassRegistration[];
-  currentClass: DanceClassInfo;
-  renewalRequests: RenewalRequest[];
   schedule: ScheduledClass[];
   roomBookings: RoomBooking[];
+  paymentReports: PaymentReport[];
+  auditTrail: AuditEntry[];
 }
 
 function initialState(): DemoState {
   return structuredClone({
     students: INITIAL_STUDENTS,
     roster: INITIAL_ROSTER,
-    currentClass: CURRENT_CLASS,
-    renewalRequests: [],
     schedule: ACADEMY_SCHEDULE,
     roomBookings: INITIAL_ROOM_BOOKINGS,
+    paymentReports: INITIAL_PAYMENT_REPORTS,
+    auditTrail: INITIAL_AUDIT_TRAIL,
   });
 }
 

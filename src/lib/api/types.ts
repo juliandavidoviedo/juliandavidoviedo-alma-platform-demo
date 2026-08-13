@@ -16,7 +16,7 @@
  * fixtures and mock-api.ts for the (deliberately simple) rules.
  */
 
-export type Role = 'DIRECCION' | 'RECEPCION' | 'ALUMNO';
+export type Role = 'DIRECCION' | 'GESTION' | 'ALUMNO';
 
 export type StudentLevel = 'INICIAL' | 'INTERMEDIO' | 'AVANZADO';
 export type DanceRole = 'LIDER' | 'SEGUIDOR' | 'AMBOS';
@@ -163,6 +163,8 @@ export interface StudentSummary {
   upcomingClasses: UpcomingClassStatus[];
   attendanceHistory: AttendanceRecord[];
   todayClass: TodayClassStatus | null;
+  paymentReports: PaymentReport[];
+  auditTrail: AuditEntry[];
 }
 
 export interface SearchResult {
@@ -307,71 +309,169 @@ export interface DirectorDashboard {
   insights: string[];
 }
 
-/** A short, human-triaged reason a student needs reception's attention today. */
+/** A short, human-triaged reason a student needs Gestión's attention today. */
 export interface AttentionItem {
   studentId: string;
   name: string;
   reason: string;
 }
 
-export type CheckInScenario = 'SUCCESS' | 'ALREADY_CHECKED_IN' | 'NO_PACKAGE';
+/**
+ * Who performed an action — the student themselves, or Gestión acting on
+ * the student's behalf. Every on-behalf action is audited: never silently
+ * attributed to the student.
+ */
+export type ActorKind = 'STUDENT' | 'GESTION';
 
-export interface CheckInSimulateResult {
-  scenario: CheckInScenario;
-  ok: true;
-  message: string;
-  attendanceId?: string;
-  className?: string;
-  remainingClasses?: number;
-  bonus?: { label: string } | null;
-}
-
-export interface RotatingCode {
-  code: string;
-  secondsRemaining: number;
-  classInProgress: {
-    classId: string;
-    name: string;
-    teacher: string;
-    startTime: string;
-    roomName: string;
-    floor: 1 | 2;
-  } | null;
+export interface AuditEntry {
+  entryId: string;
+  action: string; // 'class.confirm' | 'class.cancel' | 'payment.report' | 'payment.approve' | 'payment.reject' | 'class.restore'
+  actedBy: ActorKind;
+  actedByName: string;
+  actedForStudentId: string;
+  actedForName: string;
+  timestamp: string;
+  reason: string | null;
 }
 
 /**
- * Renewal / reactivation. The demo never touches real money: "requesting"
- * either flags reception for a callback or shows a transfer QR the student
- * says they already used — either way it lands as one pending request that
- * a human at the front desk resolves.
+ * Payment reporting is report-then-review, not instant self-checkout: a
+ * report only starts the plan once Jonathan or Iván approves it and assigns
+ * the physical sale/receipt consecutive. Approval timestamp starts the
+ * 30-day validity window — see docs/PROJECT_CONTEXT.md decision #27 in the
+ * backend repo.
  */
-export type RenewalMethod = 'ALARMA_RECEPCION' | 'QR_TRANSFERENCIA';
-export type RenewalStatus = 'PENDIENTE' | 'CONTACTADO';
+export type PaymentReportStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED';
 
-export const RENEWAL_METHOD_LABELS: Record<RenewalMethod, string> = {
-  ALARMA_RECEPCION: 'Aviso a recepción',
-  QR_TRANSFERENCIA: 'Transferencia por QR',
+export const PAYMENT_REPORT_STATUS_LABELS: Record<PaymentReportStatus, string> = {
+  PENDING_REVIEW: 'En revisión',
+  APPROVED: 'Aprobado',
+  REJECTED: 'Rechazado',
 };
 
-export interface RenewalRequest {
-  requestId: string;
+export interface PaymentReport {
+  reportId: string;
   studentId: string;
   studentName: string;
-  method: RenewalMethod;
-  requestedAt: string; // "18:40"
-  status: RenewalStatus;
+  planName: string;
+  classes: number;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  proofNote: string | null;
+  status: PaymentReportStatus;
+  reportedAt: string;
+  reportedBy: ActorKind;
+  reportedByName: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+  saleConsecutive: string | null;
 }
 
-export interface RequestRenewalResult {
+export interface ReportPaymentInput {
+  studentId: string;
+  planName: string;
+  classes: number;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  proofNote?: string;
+  actedBy: ActorKind;
+  actedByName: string;
+  reason?: string; // required in practice when actedBy = GESTION
+}
+
+export interface ReportPaymentResult {
   ok: true;
-  request: RenewalRequest;
+  report: PaymentReport;
+  message: string;
+}
+
+export interface ApprovePaymentInput {
+  reportId: string;
+  approverName: string; // 'Jonathan' | 'Iván'
+  saleConsecutive: string;
+}
+
+export interface RejectPaymentInput {
+  reportId: string;
+  approverName: string;
+  reason: string;
+}
+
+export interface ReviewPaymentResult {
+  ok: true;
+  report: PaymentReport;
+  message: string;
+}
+
+/** Manual class restoration is exceptional, not a general credit tool. */
+export type ClassRestorationReason = 'MEDICAL' | 'CALAMITY';
+
+export const CLASS_RESTORATION_LABELS: Record<ClassRestorationReason, string> = {
+  MEDICAL: 'Incapacidad médica',
+  CALAMITY: 'Calamidad doméstica',
+};
+
+export interface RestoreClassInput {
+  studentId: string;
+  reason: ClassRestorationReason;
+  note: string;
+  actedByName: string;
+}
+
+export interface RestoreClassResult {
+  ok: true;
+  availableClasses: number;
+  message: string;
+}
+
+/** Minor enrollment requires a guardian/responsible person on file. */
+export type GuardianRelationship = 'MADRE' | 'PADRE' | 'ACUDIENTE';
+
+export const GUARDIAN_RELATIONSHIP_LABELS: Record<GuardianRelationship, string> = {
+  MADRE: 'Madre',
+  PADRE: 'Padre',
+  ACUDIENTE: 'Acudiente',
+};
+
+/**
+ * Four separate, independently-gated consent choices — none implies
+ * another. Legal copy for all four is explicitly pending legal validation;
+ * this prototype ships placeholder text only.
+ */
+export interface ConsentChoices {
+  personalData: boolean;
+  sensitiveHealth: boolean;
+  internalImage: boolean;
+  publicImage: boolean;
+}
+
+export interface EnrollmentInput {
+  isMinor: boolean;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  birthDate: string;
+  level: StudentLevel;
+  eps: string;
+  guardianName?: string;
+  guardianPhone?: string;
+  guardianRelationship?: GuardianRelationship;
+  consents: ConsentChoices;
+}
+
+export interface EnrollmentResult {
+  ok: true;
+  studentId: string;
   message: string;
 }
 
 /**
- * The academy's schedule — the canonical class catalog reception manages.
+ * The academy's schedule — the canonical class catalog Gestión manages.
  * Distinct from a student's `upcomingClasses` (their own agenda): this is
- * the operational view, one row per class occurrence for the week.
+ * the operational view, one row per class occurrence for the week, and the
+ * single source of truth for `confirmedCount`/`cancelledCount` that Gestión
+ * and Admin both read.
  */
 export type ClassStatus = 'PROGRAMADA' | 'CONFIRMADA' | 'CANCELADA';
 
@@ -396,14 +496,14 @@ export interface CancelClassResult {
   message: string;
 }
 
-/** A same-day operational snapshot for the front desk — not the director's monthly view. */
+/** A same-day operational snapshot for Gestión — not the director's monthly view. */
 export interface ReceptionSummary {
   classesToday: number;
   classesThisWeek: number;
   hoursThisWeek: number;
   activeStudents: number;
   checkInsToday: number;
-  pendingRenewals: number;
+  pendingPayments: number;
   averageOccupancy: number; // 0-1, across non-cancelled scheduled classes
 }
 
@@ -427,7 +527,7 @@ export interface CreateStudentResult {
  * Room booking for anything outside the regular group schedule — a private
  * lesson, a rehearsal, free practice. The "future capability" the director
  * dashboard only gestures at (unused rooms → private lessons, rental) —
- * here it's an actual reception-facing module, still with no real payment.
+ * here it's an actual Gestión-facing module, still with no real payment.
  */
 export type RoomBookingType = 'PERSONALIZADA' | 'ENSAYO' | 'PRACTICA';
 
