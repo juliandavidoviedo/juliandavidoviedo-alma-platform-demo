@@ -7,9 +7,9 @@ import {
   LogIn,
   AlertCircle,
   History,
-  BellRing,
   Check,
   CalendarClock,
+  CalendarCheck,
   Clock,
   Users2,
   Activity,
@@ -18,29 +18,35 @@ import {
   Ban,
   AlertOctagon,
   Wallet,
+  Receipt,
+  HeartPulse,
+  ListChecks,
 } from 'lucide-react';
 import {
   api,
   CATEGORY_LABELS,
+  CLASS_RESTORATION_LABELS,
   CLASS_STATUS_LABELS,
   DEMO_TODAY,
   ENGAGEMENT_LABELS,
   PAYMENT_METHOD_LABELS,
+  PAYMENT_REPORT_STATUS_LABELS,
   PROGRAM_LABELS,
   ATTENDANCE_INTENT_LABELS,
-  RENEWAL_METHOD_LABELS,
   ROOM_BOOKING_TYPE_LABELS,
   ROOMS,
 } from '../../lib/api';
 import type {
   AttendanceIntentStatus,
   AttentionItem,
+  ClassRestorationReason,
   ClassRoster,
   ClassStatus,
   DanceRole,
   PaymentMethod,
+  PaymentReport,
+  PaymentReportStatus,
   ReceptionSummary,
-  RenewalRequest,
   RoomBooking,
   RoomBookingType,
   ScheduledClass,
@@ -53,6 +59,7 @@ import { Badge, type BadgeTone } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { StatTile } from '../../components/ui/StatTile';
 import { ActionFeedback } from '../../components/ui/ActionFeedback';
+import { AlmaLoader } from '../../components/ui/AlmaLoader';
 import { formatCOP, formatDateLong, formatDateWithWeekday } from '../../lib/format';
 
 interface PackageOption {
@@ -74,6 +81,13 @@ const PAYMENT_METHODS: PaymentMethod[] = ['EFECTIVO', 'QR', 'TARJETA'];
 const LEVELS: StudentLevel[] = ['INICIAL', 'INTERMEDIO', 'AVANZADO'];
 const DANCE_ROLES: DanceRole[] = ['LIDER', 'SEGUIDOR', 'AMBOS'];
 const BOOKING_TYPES: RoomBookingType[] = ['PERSONALIZADA', 'ENSAYO', 'PRACTICA'];
+const RESTORATION_REASONS: ClassRestorationReason[] = ['MEDICAL', 'CALAMITY'];
+
+const PAYMENT_REPORT_TONE: Record<PaymentReportStatus, BadgeTone> = {
+  PENDING_REVIEW: 'gold',
+  APPROVED: 'success',
+  REJECTED: 'danger',
+};
 
 const ENGAGEMENT_TONE: Record<string, BadgeTone> = {
   CRECIENDO: 'success',
@@ -218,8 +232,17 @@ function NewStudentForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-export function Reception() {
+/** Sale-consecutive prefix, matching Jonathan's physical receipt book. */
+function nextConsecutiveSuggestion(): string {
+  return `VT-${String(1000 + Math.floor(Math.random() * 8999)).padStart(6, '0')}`;
+}
+
+export function Gestion() {
   const [tab, setTab] = useState<Tab>('mostrador');
+
+  // Who is operating this screen — no real auth in the demo, so Gestión
+  // staff type their own name; it's what lands in the audit trail.
+  const [staffName, setStaffName] = useState('Jonathan');
 
   // Mostrador
   const [query, setQuery] = useState('Julián');
@@ -229,18 +252,35 @@ export function Reception() {
   const [profile, setProfile] = useState<StudentSummary | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [roster, setRoster] = useState<ClassRoster | null>(null);
-  const [renewalRequests, setRenewalRequests] = useState<RenewalRequest[]>([]);
   const [attentionItems, setAttentionItems] = useState<AttentionItem[]>([]);
-  const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<PackageOption>(PACKAGE_OPTIONS[2]);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('TRANSFERENCIA');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('QR');
   const [selling, setSelling] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
+  // On-behalf actions
+  const [actingOnClass, setActingOnClass] = useState(false);
+  const [reportingForStudent, setReportingForStudent] = useState(false);
+  const [onBehalfPlan, setOnBehalfPlan] = useState<PackageOption>(PACKAGE_OPTIONS[2]);
+  const [onBehalfMethod, setOnBehalfMethod] = useState<PaymentMethod>('EFECTIVO');
+  const [onBehalfProof, setOnBehalfProof] = useState('');
+  const [onBehalfReason, setOnBehalfReason] = useState('');
+
+  // Manual class restoration
+  const [restoring, setRestoring] = useState(false);
+  const [restoreReason, setRestoreReason] = useState<ClassRestorationReason>('MEDICAL');
+  const [restoreNote, setRestoreNote] = useState('');
+
   // Agenda
   const [summary, setSummary] = useState<ReceptionSummary | null>(null);
   const [schedule, setSchedule] = useState<ScheduledClass[]>([]);
+  const [paymentReports, setPaymentReports] = useState<PaymentReport[]>([]);
+  const [approverName, setApproverName] = useState('Jonathan');
+  const [consecutiveByReport, setConsecutiveByReport] = useState<Record<string, string>>({});
+  const [rejectingReportId, setRejectingReportId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [reviewingReportId, setReviewingReportId] = useState<string | null>(null);
   const [confirmingClassId, setConfirmingClassId] = useState<string | null>(null);
   const [cancelingClassId, setCancelingClassId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -270,10 +310,6 @@ export function Reception() {
     api.frontDesk.getClassRoster().then(setRoster);
   }
 
-  function loadRenewalRequests() {
-    api.frontDesk.getRenewalRequests().then(setRenewalRequests);
-  }
-
   function loadAttentionItems() {
     api.frontDesk.getAttentionItems().then(setAttentionItems);
   }
@@ -286,6 +322,10 @@ export function Reception() {
     api.frontDesk.getSchedule().then(setSchedule);
   }
 
+  function loadPaymentReports() {
+    api.frontDesk.getPaymentReports().then(setPaymentReports);
+  }
+
   function loadRoomBookings() {
     api.frontDesk.getRoomBookings().then(setRoomBookings);
   }
@@ -293,20 +333,13 @@ export function Reception() {
   useEffect(() => {
     runSearch('Julián');
     loadRoster();
-    loadRenewalRequests();
     loadAttentionItems();
     loadSummary();
     loadSchedule();
+    loadPaymentReports();
     loadRoomBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  async function resolveRenewal(requestId: string) {
-    setResolvingId(requestId);
-    await api.frontDesk.resolveRenewalRequest(requestId);
-    loadRenewalRequests();
-    setResolvingId(null);
-  }
 
   function handleSearchChange(value: string) {
     setQuery(value);
@@ -338,8 +371,105 @@ export function Reception() {
     setProfile(refreshed);
     setFeedback(result.message);
     setSelling(false);
-    loadRenewalRequests();
     loadSummary();
+  }
+
+  /** Gestión confirming today's class on the student's behalf — audited. */
+  async function confirmTodayFor() {
+    if (!selectedId || !roster?.danceClass) return;
+    setActingOnClass(true);
+    const result = await api.frontDesk.confirmClassFor(
+      selectedId,
+      roster.danceClass.classId,
+      staffName,
+      onBehalfReason || undefined,
+    );
+    const refreshed = await api.frontDesk.getStudentProfile(selectedId);
+    setProfile(refreshed);
+    setFeedback(result.message);
+    setActingOnClass(false);
+    loadSchedule();
+  }
+
+  async function cancelTodayFor() {
+    if (!selectedId || !roster?.danceClass) return;
+    setActingOnClass(true);
+    const result = await api.frontDesk.cancelClassFor(
+      selectedId,
+      roster.danceClass.classId,
+      staffName,
+      onBehalfReason || undefined,
+    );
+    const refreshed = await api.frontDesk.getStudentProfile(selectedId);
+    setProfile(refreshed);
+    setFeedback(result.message);
+    setActingOnClass(false);
+    loadSchedule();
+  }
+
+  /** Gestión reporting a payment on the student's behalf — starts PENDING_REVIEW, same as the student's own report. */
+  async function reportPaymentFor() {
+    if (!selectedId || !profile) return;
+    setReportingForStudent(true);
+    const result = await api.payments.report({
+      studentId: selectedId,
+      planName: onBehalfPlan.name,
+      classes: onBehalfPlan.classes,
+      amount: onBehalfPlan.price,
+      paymentMethod: onBehalfMethod,
+      proofNote: onBehalfProof || undefined,
+      actedBy: 'GESTION',
+      actedByName: staffName,
+      reason: onBehalfReason || undefined,
+    });
+    const refreshed = await api.frontDesk.getStudentProfile(selectedId);
+    setProfile(refreshed);
+    setFeedback(result.message);
+    setReportingForStudent(false);
+    loadPaymentReports();
+  }
+
+  async function restoreClassFor() {
+    if (!selectedId) return;
+    setRestoring(true);
+    try {
+      const result = await api.frontDesk.restoreClass({
+        studentId: selectedId,
+        reason: restoreReason,
+        note: restoreNote,
+        actedByName: staffName,
+      });
+      const refreshed = await api.frontDesk.getStudentProfile(selectedId);
+      setProfile(refreshed);
+      setFeedback(result.message);
+      setRestoreNote('');
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'No se pudo restaurar la clase (simulación).');
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  async function approvePayment(reportId: string) {
+    setReviewingReportId(reportId);
+    const saleConsecutive = consecutiveByReport[reportId] || nextConsecutiveSuggestion();
+    const r = await api.payments.approve({ reportId, approverName, saleConsecutive });
+    setScheduleFeedback(r.message);
+    setReviewingReportId(null);
+    loadPaymentReports();
+    if (selectedId === r.report.studentId) {
+      api.frontDesk.getStudentProfile(selectedId).then(setProfile);
+    }
+  }
+
+  async function rejectPayment(reportId: string) {
+    setReviewingReportId(reportId);
+    const r = await api.payments.reject({ reportId, approverName, reason: rejectReason });
+    setScheduleFeedback(r.message);
+    setReviewingReportId(null);
+    setRejectingReportId(null);
+    setRejectReason('');
+    loadPaymentReports();
   }
 
   async function manualCheckIn() {
@@ -398,9 +528,20 @@ export function Reception() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-      <header className="flex flex-col gap-1">
-        <span className="text-sm text-alma-text-muted">Panel de recepción · Jonathan</span>
-        <h1 className="font-display text-3xl text-alma-text">Sala y mostrador</h1>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-sm text-alma-text-muted">Panel de Gestión</span>
+          <h1 className="font-display text-3xl text-alma-text">Qué necesita atención ahora</h1>
+        </div>
+        <label className="flex items-center gap-2 text-xs text-alma-text-muted">
+          Operando como
+          <input
+            type="text"
+            value={staffName}
+            onChange={(e) => setStaffName(e.target.value)}
+            className="min-h-[36px] w-32 rounded-lg border border-alma-border bg-alma-bg px-2.5 text-sm text-alma-text focus:border-alma-gold focus:outline-none"
+          />
+        </label>
       </header>
 
       <nav className="mt-6 inline-flex rounded-full border border-alma-border bg-alma-surface p-1">
@@ -489,7 +630,9 @@ export function Reception() {
             {selectedId && (
               <Card className="flex flex-col gap-5">
                 {loadingProfile || !profile ? (
-                  <div className="h-40 animate-pulse rounded-xl bg-alma-surface-elevated" />
+                  <div className="flex h-40 items-center px-2">
+                    <AlmaLoader label="Cargando perfil…" />
+                  </div>
                 ) : (
                   <>
                     <div className="flex items-center gap-3">
@@ -588,7 +731,151 @@ export function Reception() {
                       {checkingIn ? 'Registrando…' : 'Check-in manual (simulación)'}
                     </Button>
 
+                    {/* Act on the student's behalf — every action here is audited (actedBy/actedFor/timestamp/reason) */}
+                    <div className="rounded-xl border border-alma-border bg-alma-bg p-3.5">
+                      <p className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-alma-text-muted uppercase">
+                        <ListChecks className="h-3.5 w-3.5" aria-hidden="true" />
+                        Actuar en nombre de {profile.firstName}
+                      </p>
+
+                      <div className="mt-2.5 flex flex-col gap-2">
+                        <p className="text-xs text-alma-text-secondary">
+                          Clase de hoy: {roster?.danceClass?.name ?? '—'}
+                          {roster?.danceClass ? ` · ${roster.danceClass.startTime}` : ''}
+                        </p>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="secondary"
+                            className="flex-1"
+                            onClick={confirmTodayFor}
+                            disabled={actingOnClass || !roster?.danceClass}
+                          >
+                            <CalendarCheck className="h-4 w-4" aria-hidden="true" />
+                            Confirmar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            className="flex-1"
+                            onClick={cancelTodayFor}
+                            disabled={actingOnClass || !roster?.danceClass}
+                          >
+                            <X className="h-4 w-4" aria-hidden="true" />
+                            Cancelar
+                          </Button>
+                        </div>
+                      </div>
+
+                      <details className="mt-3">
+                        <summary className="cursor-pointer text-xs font-medium text-alma-text-secondary">
+                          Reportar pago en su nombre
+                        </summary>
+                        <div className="mt-2 flex flex-col gap-2">
+                          <select
+                            value={onBehalfPlan.name}
+                            onChange={(e) =>
+                              setOnBehalfPlan(PACKAGE_OPTIONS.find((p) => p.name === e.target.value) ?? PACKAGE_OPTIONS[0])
+                            }
+                            className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text focus:border-alma-gold focus:outline-none"
+                          >
+                            {PACKAGE_OPTIONS.map((p) => (
+                              <option key={p.name} value={p.name}>
+                                {p.name} · {formatCOP(p.price)}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={onBehalfMethod}
+                            onChange={(e) => setOnBehalfMethod(e.target.value as PaymentMethod)}
+                            className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text focus:border-alma-gold focus:outline-none"
+                          >
+                            {PAYMENT_METHODS.map((m) => (
+                              <option key={m} value={m}>
+                                {PAYMENT_METHOD_LABELS[m]}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="text"
+                            value={onBehalfProof}
+                            onChange={(e) => setOnBehalfProof(e.target.value)}
+                            placeholder="Nota de comprobante (opcional)"
+                            className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+                          />
+                          <input
+                            type="text"
+                            value={onBehalfReason}
+                            onChange={(e) => setOnBehalfReason(e.target.value)}
+                            placeholder="Motivo de la gestión en su nombre"
+                            className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+                          />
+                          <Button
+                            variant="secondary"
+                            onClick={reportPaymentFor}
+                            disabled={reportingForStudent}
+                          >
+                            <Receipt className="h-4 w-4" aria-hidden="true" />
+                            {reportingForStudent ? 'Reportando…' : 'Reportar pago (simulación)'}
+                          </Button>
+                        </div>
+                      </details>
+
+                      <details className="mt-3">
+                        <summary className="cursor-pointer text-xs font-medium text-alma-text-secondary">
+                          Restaurar clase (excepcional)
+                        </summary>
+                        <p className="mt-1 text-xs text-alma-text-muted">
+                          Solo MEDICAL o CALAMITY, y solo dentro de la vigencia del plan actual.
+                        </p>
+                        <div className="mt-2 flex flex-col gap-2">
+                          <select
+                            value={restoreReason}
+                            onChange={(e) => setRestoreReason(e.target.value as ClassRestorationReason)}
+                            className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text focus:border-alma-gold focus:outline-none"
+                          >
+                            {RESTORATION_REASONS.map((r) => (
+                              <option key={r} value={r}>
+                                {CLASS_RESTORATION_LABELS[r]}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="text"
+                            value={restoreNote}
+                            onChange={(e) => setRestoreNote(e.target.value)}
+                            placeholder="Nota (obligatoria)"
+                            className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+                          />
+                          <Button
+                            variant="secondary"
+                            onClick={restoreClassFor}
+                            disabled={restoring || !restoreNote.trim() || !profile.package}
+                          >
+                            <HeartPulse className="h-4 w-4" aria-hidden="true" />
+                            {restoring ? 'Restaurando…' : 'Restaurar clase (simulación)'}
+                          </Button>
+                        </div>
+                      </details>
+                    </div>
+
                     {feedback && <ActionFeedback message={feedback} />}
+
+                    {/* Audit trail — proof every on-behalf action is recorded, never silent */}
+                    {profile.auditTrail.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium tracking-wide text-alma-text-muted uppercase">
+                          Historial de acciones
+                        </p>
+                        <ul className="mt-2 space-y-1.5">
+                          {profile.auditTrail.slice(0, 5).map((entry) => (
+                            <li key={entry.entryId} className="text-xs text-alma-text-muted">
+                              {entry.timestamp} · {entry.action} · {entry.actedByName}
+                              {entry.actedBy === 'GESTION' ? ' (Gestión)' : ' (alumno)'}
+                              {entry.reason ? ` · ${entry.reason}` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
 
                     {/* Purchase history */}
                     {profile.packageHistory.length > 0 && (
@@ -620,7 +907,7 @@ export function Reception() {
             )}
           </div>
 
-          {/* Class roster + renewal requests */}
+          {/* Class roster + payment review + attention list */}
           <div className="flex flex-col gap-6">
             <Card className="h-fit">
               <div className="flex items-center justify-between">
@@ -669,41 +956,103 @@ export function Reception() {
               </ul>
             </Card>
 
-            {/* Renewal / reactivation requests raised from the student portal */}
+            {/* Payment reports awaiting Jonathan/Iván's review — the required end-to-end scenario */}
             <Card className="h-fit">
               <div className="flex items-center gap-2">
-                <BellRing className="h-4 w-4 text-alma-gold" aria-hidden="true" />
-                <h2 className="font-display text-lg text-alma-text">Solicitudes de renovación</h2>
+                <Receipt className="h-4 w-4 text-alma-gold" aria-hidden="true" />
+                <h2 className="font-display text-lg text-alma-text">Pagos por aprobar</h2>
               </div>
               <p className="mt-1 text-xs text-alma-text-muted">
-                Avisos enviados por alumnos desde su portal — aviso directo o transferencia por QR.
+                Reportados por el alumno o por Gestión en su nombre. Aprobar asigna el consecutivo de venta
+                y activa el plan por 30 días desde este momento.
               </p>
+              <label className="mt-3 flex items-center gap-2 text-xs text-alma-text-muted">
+                Aprueba/rechaza como
+                <input
+                  type="text"
+                  value={approverName}
+                  onChange={(e) => setApproverName(e.target.value)}
+                  className="min-h-[32px] w-28 rounded-lg border border-alma-border bg-alma-bg px-2 text-sm text-alma-text focus:border-alma-gold focus:outline-none"
+                />
+              </label>
 
               <ul className="mt-4 divide-y divide-alma-border">
-                {renewalRequests.map((r) => (
-                  <li key={r.requestId} className="flex items-center justify-between py-3">
-                    <div>
-                      <p className="text-sm font-medium text-alma-text">{r.studentName}</p>
-                      <p className="text-xs text-alma-text-muted">
-                        {RENEWAL_METHOD_LABELS[r.method]} · {r.requestedAt}
-                      </p>
+                {paymentReports.map((r) => (
+                  <li key={r.reportId} className="py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-alma-text">
+                          {r.studentName} · {r.planName}
+                        </p>
+                        <p className="text-xs text-alma-text-muted">
+                          {formatCOP(r.amount)} · {PAYMENT_METHOD_LABELS[r.paymentMethod]} · reportado por{' '}
+                          {r.reportedByName} a las {r.reportedAt}
+                          {r.proofNote ? ` · ${r.proofNote}` : ''}
+                        </p>
+                        {r.status === 'APPROVED' && (
+                          <p className="mt-1 text-xs text-alma-gold">
+                            Aprobado por {r.reviewedBy} · consecutivo {r.saleConsecutive}
+                          </p>
+                        )}
+                        {r.status === 'REJECTED' && (
+                          <p className="mt-1 text-xs text-[#e4a3ab]">Rechazado: {r.rejectionReason}</p>
+                        )}
+                      </div>
+                      <Badge tone={PAYMENT_REPORT_TONE[r.status]}>{PAYMENT_REPORT_STATUS_LABELS[r.status]}</Badge>
                     </div>
-                    {r.status === 'PENDIENTE' ? (
-                      <Button
-                        variant="secondary"
-                        onClick={() => resolveRenewal(r.requestId)}
-                        disabled={resolvingId === r.requestId}
-                      >
-                        <Check className="h-4 w-4" aria-hidden="true" />
-                        Contactado
-                      </Button>
-                    ) : (
-                      <Badge tone="neutral">Contactado</Badge>
+
+                    {r.status === 'PENDING_REVIEW' && (
+                      <div className="mt-2.5 flex flex-col gap-2">
+                        <input
+                          type="text"
+                          value={consecutiveByReport[r.reportId] ?? nextConsecutiveSuggestion()}
+                          onChange={(e) =>
+                            setConsecutiveByReport((prev) => ({ ...prev, [r.reportId]: e.target.value }))
+                          }
+                          placeholder="Consecutivo de venta"
+                          className="min-h-[40px] rounded-lg border border-alma-border bg-alma-bg px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            variant="secondary"
+                            className="flex-1"
+                            onClick={() => approvePayment(r.reportId)}
+                            disabled={reviewingReportId === r.reportId}
+                          >
+                            <Check className="h-4 w-4" aria-hidden="true" />
+                            Aprobar
+                          </Button>
+                          <Button
+                            variant="danger"
+                            className="flex-1"
+                            onClick={() =>
+                              setRejectingReportId(rejectingReportId === r.reportId ? null : r.reportId)
+                            }
+                          >
+                            <X className="h-4 w-4" aria-hidden="true" />
+                            Rechazar
+                          </Button>
+                        </div>
+                        {rejectingReportId === r.reportId && (
+                          <div className="flex flex-col gap-2 rounded-lg border border-alma-wine/40 bg-alma-wine/5 p-2.5 sm:flex-row">
+                            <input
+                              type="text"
+                              value={rejectReason}
+                              onChange={(e) => setRejectReason(e.target.value)}
+                              placeholder="Motivo del rechazo"
+                              className="min-h-[40px] flex-1 rounded-lg border border-alma-border bg-alma-bg px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+                            />
+                            <Button variant="danger" onClick={() => rejectPayment(r.reportId)}>
+                              Confirmar rechazo
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </li>
                 ))}
-                {renewalRequests.length === 0 && (
-                  <li className="py-6 text-center text-sm text-alma-text-muted">Sin solicitudes pendientes.</li>
+                {paymentReports.length === 0 && (
+                  <li className="py-6 text-center text-sm text-alma-text-muted">Sin pagos reportados.</li>
                 )}
               </ul>
             </Card>
@@ -763,9 +1112,9 @@ export function Reception() {
                   icon={<LogIn className="h-4 w-4" aria-hidden="true" />}
                 />
                 <StatTile
-                  label="Renovaciones pendientes"
-                  value={summary.pendingRenewals.toString()}
-                  icon={<BellRing className="h-4 w-4" aria-hidden="true" />}
+                  label="Pagos pendientes"
+                  value={summary.pendingPayments.toString()}
+                  icon={<Receipt className="h-4 w-4" aria-hidden="true" />}
                 />
               </>
             ) : (

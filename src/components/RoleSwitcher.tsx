@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 
 const ROLES = [
   { to: '/admin', label: 'Dirección' },
-  { to: '/reception', label: 'Recepción' },
+  { to: '/gestion', label: 'Gestión' },
   { to: '/student', label: 'Alumno' },
 ] as const;
 

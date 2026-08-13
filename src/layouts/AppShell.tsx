@@ -1,5 +1,4 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { QrCode } from 'lucide-react';
 import { Brand } from '../components/Brand';
 import { DemoBadge } from '../components/DemoBadge';
 import { DemoDisclaimer } from '../components/DemoDisclaimer';
@@ -10,6 +9,7 @@ const PUBLIC_LINKS = [
   { to: '/clases', label: 'Clases', end: false },
   { to: '/blog', label: 'Blog', end: false },
   { to: '/eventos', label: 'Eventos', end: false },
+  { to: '/inscripcion', label: 'Inscripción', end: false },
 ] as const;
 
 export function AppShell() {
@@ -42,20 +42,6 @@ export function AppShell() {
 
           <div className="flex flex-wrap items-center gap-3">
             <RoleSwitcher />
-            <NavLink
-              to="/checkin"
-              className={({ isActive }) =>
-                [
-                  'inline-flex min-h-[40px] items-center gap-2 rounded-full border px-3.5 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'border-alma-gold/50 bg-alma-gold/10 text-alma-gold'
-                    : 'border-alma-border text-alma-text-secondary hover:text-alma-text',
-                ].join(' ')
-              }
-            >
-              <QrCode className="h-4 w-4" aria-hidden="true" />
-              Check-in
-            </NavLink>
           </div>
         </div>
       </header>

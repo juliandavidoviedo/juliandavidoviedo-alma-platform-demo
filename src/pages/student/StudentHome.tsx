@@ -1,33 +1,63 @@
 import { useEffect, useState } from 'react';
-import { Bell, CalendarCheck, Flame, QrCode, Wallet, X } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { api, JULIAN, PROGRAM_LABELS } from '../../lib/api';
-import type { StudentSummary } from '../../lib/api';
+import { CalendarCheck, Flame, Receipt, Wallet, X } from 'lucide-react';
+import {
+  api,
+  ATTENDANCE_INTENT_LABELS,
+  JULIAN,
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_REPORT_STATUS_LABELS,
+  PROGRAM_LABELS,
+} from '../../lib/api';
+import type { PaymentMethod, PaymentReportStatus, StudentSummary } from '../../lib/api';
 import { Card } from '../../components/ui/Card';
-import { Badge } from '../../components/ui/Badge';
+import { Badge, type BadgeTone } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { ActionFeedback } from '../../components/ui/ActionFeedback';
-import { QrGlyph } from '../../components/QrGlyph';
+import { AlmaLoader } from '../../components/ui/AlmaLoader';
 import { formatDateLong, formatDateWithWeekday } from '../../lib/format';
 
-function RenewalCard({ urgent }: { urgent: boolean }) {
-  const [showQr, setShowQr] = useState(false);
+const PAYMENT_REPORT_TONE: Record<PaymentReportStatus, BadgeTone> = {
+  PENDING_REVIEW: 'gold',
+  APPROVED: 'success',
+  REJECTED: 'danger',
+};
+
+const REPORT_PLANS = [
+  { name: 'Alma Open (mensual)', classes: 999, price: 220_000 },
+  { name: 'Paquete 4 clases', classes: 4, price: 150_000 },
+  { name: 'Paquete 8 clases', classes: 8, price: 280_000 },
+  { name: 'Paquete 12 clases', classes: 12, price: 390_000 },
+];
+
+/**
+ * Report a payment — not instant checkout. It starts PENDING_REVIEW;
+ * Jonathan or Iván review and approve it from Gestión, which is what
+ * actually activates the plan (30 days from that approval).
+ */
+function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: () => void }) {
+  const [plan, setPlan] = useState(REPORT_PLANS[0]);
+  const [method, setMethod] = useState<PaymentMethod>('QR');
+  const [proofNote, setProofNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const urgent = !data.package || data.availableClasses === 0 || (data.package?.daysUntilExpiry ?? 99) <= 7;
 
-  async function alertReception() {
+  async function submitReport() {
     setBusy(true);
-    const r = await api.student.requestRenewal('ALARMA_RECEPCION');
+    const r = await api.payments.report({
+      studentId: data.studentId,
+      planName: plan.name,
+      classes: plan.classes,
+      amount: plan.price,
+      paymentMethod: method,
+      proofNote: proofNote || undefined,
+      actedBy: 'STUDENT',
+      actedByName: data.firstName,
+    });
     setFeedback(r.message);
     setBusy(false);
-  }
-
-  async function confirmTransfer() {
-    setBusy(true);
-    const r = await api.student.requestRenewal('QR_TRANSFERENCIA');
-    setFeedback(r.message);
-    setBusy(false);
+    onReported();
   }
 
   return (
@@ -39,44 +69,68 @@ function RenewalCard({ urgent }: { urgent: boolean }) {
         </p>
       </div>
       <p className="mt-1 text-xs text-alma-text-muted">
-        Sin pasarela real: recepción confirma cualquiera de las dos opciones a mano.
+        Métodos: efectivo, QR Davivienda o tarjeta. Reportar aquí no activa el plan de inmediato — Jonathan
+        o Iván lo revisan y lo activan por 30 días.
       </p>
 
-      {!showQr ? (
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <Button variant="secondary" className="flex-1" onClick={alertReception} disabled={busy}>
-            <Bell className="h-4 w-4" aria-hidden="true" />
-            Avisar a recepción
-          </Button>
-          <Button variant="primary" className="flex-1" onClick={() => setShowQr(true)} disabled={busy}>
-            <QrCode className="h-4 w-4" aria-hidden="true" />
-            Pagar por transferencia
-          </Button>
-        </div>
-      ) : (
-        <div className="mt-3 flex flex-col items-center gap-3 rounded-xl border border-alma-border bg-alma-bg p-4 text-center">
-          <QrGlyph seed={`transfer-${JULIAN.studentId}`} />
-          <div className="text-xs text-alma-text-muted">
-            <p>Cuenta de ahorros ficticia · Banco Alma</p>
-            <p>N.º 000-000000-00 · Alma de Tango SAS</p>
-          </div>
-          <Button variant="primary" className="w-full" onClick={confirmTransfer} disabled={busy}>
-            {busy ? 'Enviando…' : 'Ya transferí, notificar a recepción'}
-          </Button>
-          <button
-            type="button"
-            className="text-xs text-alma-text-muted underline underline-offset-2"
-            onClick={() => setShowQr(false)}
-          >
-            Cancelar
-          </button>
-        </div>
-      )}
+      <div className="mt-3 flex flex-col gap-2">
+        <select
+          value={plan.name}
+          onChange={(e) => setPlan(REPORT_PLANS.find((p) => p.name === e.target.value) ?? REPORT_PLANS[0])}
+          className="min-h-[44px] rounded-xl border border-alma-border bg-alma-bg px-3 text-sm text-alma-text focus:border-alma-gold focus:outline-none"
+        >
+          {REPORT_PLANS.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.name} · ${p.price.toLocaleString('es-CO')}
+            </option>
+          ))}
+        </select>
+        <select
+          value={method}
+          onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+          className="min-h-[44px] rounded-xl border border-alma-border bg-alma-bg px-3 text-sm text-alma-text focus:border-alma-gold focus:outline-none"
+        >
+          {(['EFECTIVO', 'QR', 'TARJETA'] as PaymentMethod[]).map((m) => (
+            <option key={m} value={m}>
+              {PAYMENT_METHOD_LABELS[m]}
+            </option>
+          ))}
+        </select>
+        <input
+          type="text"
+          value={proofNote}
+          onChange={(e) => setProofNote(e.target.value)}
+          placeholder="Nota de comprobante (opcional)"
+          className="min-h-[44px] rounded-xl border border-alma-border bg-alma-bg px-3 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
+        />
+        <Button variant="primary" onClick={submitReport} disabled={busy}>
+          <Receipt className="h-4 w-4" aria-hidden="true" />
+          {busy ? 'Reportando…' : 'Reportar pago (simulación)'}
+        </Button>
+        {busy && <AlmaLoader label="Enviando reporte…" />}
+      </div>
 
       {feedback && (
         <div className="mt-3">
           <ActionFeedback message={feedback} />
         </div>
+      )}
+
+      {data.paymentReports.length > 0 && (
+        <ul className="mt-4 divide-y divide-alma-border">
+          {data.paymentReports.map((r) => (
+            <li key={r.reportId} className="flex items-center justify-between py-2.5">
+              <div>
+                <p className="text-xs text-alma-text-secondary">{r.planName}</p>
+                <p className="text-xs text-alma-text-muted">
+                  {r.reportedAt} · {PAYMENT_METHOD_LABELS[r.paymentMethod]}
+                  {r.saleConsecutive ? ` · ${r.saleConsecutive}` : ''}
+                </p>
+              </div>
+              <Badge tone={PAYMENT_REPORT_TONE[r.status]}>{PAYMENT_REPORT_STATUS_LABELS[r.status]}</Badge>
+            </li>
+          ))}
+        </ul>
       )}
     </Card>
   );
@@ -114,13 +168,14 @@ export function StudentHome() {
   if (!data) {
     return (
       <div className="mx-auto max-w-md px-4 py-10 sm:px-6">
-        <div className="h-72 animate-pulse rounded-2xl border border-alma-border bg-alma-surface" />
+        <div className="flex h-72 items-center justify-center rounded-2xl border border-alma-border bg-alma-surface px-8">
+          <AlmaLoader label="Cargando tu portal…" />
+        </div>
       </div>
     );
   }
 
   const expirySoon = (data.package?.daysUntilExpiry ?? 99) <= 7;
-  const needsRenewal = !data.package || data.availableClasses === 0 || expirySoon;
   const todayStatus = data.todayClass?.registrationStatus ?? null;
   const todayClassId = data.todayClass?.danceClass.classId;
 
@@ -152,18 +207,11 @@ export function StudentHome() {
             </Badge>
           </div>
         ) : (
-          <p className="mt-4 text-sm text-[#e4a3ab]">Pasa por recepción para recargar</p>
+          <p className="mt-4 text-sm text-[#e4a3ab]">Reporta un pago para reactivar tu plan</p>
         )}
-
-        <Link to="/checkin" className="mt-6 block">
-          <Button variant="primary" className="w-full">
-            <QrCode className="h-4 w-4" aria-hidden="true" />
-            Registrar asistencia
-          </Button>
-        </Link>
       </Card>
 
-      <RenewalCard urgent={needsRenewal} />
+      <PaymentCard data={data} onReported={load} />
 
       {/* Today's class — reserve / cancel lifecycle */}
       {data.todayClass && todayClassId && (
@@ -184,7 +232,7 @@ export function StudentHome() {
             <p className="mt-3 text-xs text-alma-text-muted">Ya marcaste tu asistencia hoy.</p>
           ) : todayStatus === 'CONFIRMED' ? (
             <div className="mt-3 flex items-center justify-between gap-3">
-              <Badge tone="gold">Confirmado</Badge>
+              <Badge tone="gold">{ATTENDANCE_INTENT_LABELS.CONFIRMED}</Badge>
               <Button
                 variant="ghost"
                 onClick={() => cancelReservation(todayClassId)}
@@ -272,7 +320,7 @@ export function StudentHome() {
                   <p className="text-xs text-alma-text-muted">Ya asististe a esta clase.</p>
                 ) : cls.registrationStatus === 'CONFIRMED' ? (
                   <div className="flex items-center justify-between gap-3">
-                    <Badge tone="gold">Reservado</Badge>
+                    <Badge tone="gold">{ATTENDANCE_INTENT_LABELS.CONFIRMED}</Badge>
                     <Button
                       variant="ghost"
                       onClick={() => cancelReservation(cls.classId)}
