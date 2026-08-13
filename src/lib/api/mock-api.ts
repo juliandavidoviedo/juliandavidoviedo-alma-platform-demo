@@ -121,12 +121,6 @@ function findRegistration(state: DemoState, studentId: string, classId: string):
   return state.roster.find((r) => r.studentId === studentId && r.classId === classId);
 }
 
-function daysBetween(fromIso: string, toIso: string): number {
-  const from = new Date(`${fromIso}T00:00:00`);
-  const to = new Date(`${toIso}T00:00:00`);
-  return Math.round((to.getTime() - from.getTime()) / 86_400_000);
-}
-
 function addDays(iso: string, days: number): string {
   const date = new Date(`${iso}T00:00:00`);
   date.setDate(date.getDate() + days);
@@ -473,7 +467,6 @@ function performReportPayment(
     amount: input.amount,
     paymentMethod: input.paymentMethod,
     transferReference: input.transferReference?.trim() || null,
-    receiptFileName: input.receiptFileName?.trim() || null,
     proofNote: input.proofNote?.trim() || null,
     status: 'PENDING_REVIEW',
     reportedAt: nowTime(),
@@ -539,7 +532,6 @@ function performApprovePayment(
     totalClasses: report.classes,
     balance: report.classes,
     expiresOn,
-    daysUntilExpiry: 30,
   };
   const purchase: PackagePurchase = {
     packageId,
@@ -774,7 +766,6 @@ export const api = {
         totalClasses: (record.package?.totalClasses ?? 0) + input.classes,
         balance: (record.package?.balance ?? 0) + input.classes,
         expiresOn,
-        daysUntilExpiry: daysBetween(DEMO_TODAY, expiresOn),
       };
 
       const purchase = {

@@ -3,6 +3,7 @@ import { CalendarCheck, Flame, Receipt, Wallet, X } from 'lucide-react';
 import {
   api,
   ATTENDANCE_INTENT_LABELS,
+  DEMO_TODAY,
   JULIAN,
   PAYMENT_METHOD_LABELS,
   PAYMENT_REPORT_STATUS_LABELS,
@@ -15,7 +16,7 @@ import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { ActionFeedback } from '../../components/ui/ActionFeedback';
 import { AlmaLoader } from '../../components/ui/AlmaLoader';
-import { formatDateLong, formatDateWithWeekday } from '../../lib/format';
+import { daysUntil, formatDateLong, formatDateWithWeekday } from '../../lib/format';
 
 const PAYMENT_REPORT_TONE: Record<PaymentReportStatus, BadgeTone> = {
   PENDING_REVIEW: 'gold',
@@ -39,11 +40,13 @@ function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: (
   const [plan, setPlan] = useState(REPORT_PLANS[0]);
   const [method, setMethod] = useState<PaymentMethod>('QR');
   const [transferReference, setTransferReference] = useState('');
-  const [receiptFileName, setReceiptFileName] = useState('');
   const [proofNote, setProofNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const urgent = !data.package || data.availableClasses === 0 || (data.package?.daysUntilExpiry ?? 99) <= 7;
+  const urgent =
+    !data.package ||
+    data.availableClasses === 0 ||
+    (data.package ? daysUntil(data.package.expiresOn, DEMO_TODAY) : 99) <= 7;
   const isTransfer = method === 'QR';
 
   async function submitReport() {
@@ -55,7 +58,6 @@ function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: (
       amount: plan.price,
       paymentMethod: method,
       transferReference: isTransfer ? transferReference || undefined : undefined,
-      receiptFileName: receiptFileName || undefined,
       proofNote: proofNote || undefined,
       actedBy: 'STUDENT',
       actedByName: data.firstName,
@@ -63,7 +65,6 @@ function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: (
     setFeedback(r.message);
     setBusy(false);
     setTransferReference('');
-    setReceiptFileName('');
     setProofNote('');
     onReported();
   }
@@ -105,7 +106,7 @@ function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: (
           ))}
         </select>
 
-        {isTransfer ? (
+        {isTransfer && (
           <>
             <input
               type="text"
@@ -117,22 +118,7 @@ function PaymentCard({ data, onReported }: { data: StudentSummary; onReported: (
             <p className="text-xs text-alma-text-muted">
               No necesitas el consecutivo físico todavía — Jonathan lo asigna al revisar tu pago.
             </p>
-            <input
-              type="text"
-              value={receiptFileName}
-              onChange={(e) => setReceiptFileName(e.target.value)}
-              placeholder="Nombre del archivo del comprobante (recomendado)"
-              className="min-h-[44px] rounded-xl border border-alma-border bg-alma-bg px-3 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
-            />
           </>
-        ) : (
-          <input
-            type="text"
-            value={receiptFileName}
-            onChange={(e) => setReceiptFileName(e.target.value)}
-            placeholder="Nombre del archivo del recibo (opcional)"
-            className="min-h-[44px] rounded-xl border border-alma-border bg-alma-bg px-3 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
-          />
         )}
 
         <input
@@ -222,7 +208,8 @@ export function StudentHome() {
     );
   }
 
-  const expirySoon = (data.package?.daysUntilExpiry ?? 99) <= 7;
+  const daysUntilExpiry = data.package ? daysUntil(data.package.expiresOn, DEMO_TODAY) : null;
+  const expirySoon = (daysUntilExpiry ?? 99) <= 7;
   const todayStatus = data.todayClass?.registrationStatus ?? null;
   const todayClassId = data.todayClass?.danceClass.classId;
 
@@ -249,7 +236,7 @@ export function StudentHome() {
         {data.package ? (
           <div className="mt-4 flex justify-center">
             <Badge tone={expirySoon ? 'danger' : 'neutral'}>
-              Vence el {formatDateLong(data.package.expiresOn)} · faltan {data.package.daysUntilExpiry}{' '}
+              Vence el {formatDateLong(data.package.expiresOn)} · faltan {daysUntilExpiry}{' '}
               días
             </Badge>
           </div>

@@ -60,7 +60,7 @@ import { Button } from '../../components/ui/Button';
 import { StatTile } from '../../components/ui/StatTile';
 import { ActionFeedback } from '../../components/ui/ActionFeedback';
 import { AlmaLoader } from '../../components/ui/AlmaLoader';
-import { formatCOP, formatDateLong, formatDateWithWeekday } from '../../lib/format';
+import { daysUntil, formatCOP, formatDateLong, formatDateWithWeekday } from '../../lib/format';
 
 interface PackageOption {
   name: string;
@@ -265,7 +265,6 @@ export function Gestion() {
   const [onBehalfPlan, setOnBehalfPlan] = useState<PackageOption>(PACKAGE_OPTIONS[2]);
   const [onBehalfMethod, setOnBehalfMethod] = useState<PaymentMethod>('EFECTIVO');
   const [onBehalfTransferRef, setOnBehalfTransferRef] = useState('');
-  const [onBehalfReceipt, setOnBehalfReceipt] = useState('');
   const [onBehalfProof, setOnBehalfProof] = useState('');
   const [onBehalfReason, setOnBehalfReason] = useState('');
 
@@ -439,7 +438,6 @@ export function Gestion() {
       amount: onBehalfPlan.price,
       paymentMethod: onBehalfMethod,
       transferReference: onBehalfMethod === 'QR' ? onBehalfTransferRef || undefined : undefined,
-      receiptFileName: onBehalfReceipt || undefined,
       proofNote: onBehalfProof || undefined,
       actedBy: 'GESTION',
       actedByName: staffName,
@@ -450,7 +448,6 @@ export function Gestion() {
     setFeedback(result.message);
     setReportingForStudent(false);
     setOnBehalfTransferRef('');
-    setOnBehalfReceipt('');
     setOnBehalfProof('');
     loadPaymentReports();
   }
@@ -661,16 +658,9 @@ export function Gestion() {
                           {formatCOP(r.amount)} · {PAYMENT_METHOD_LABELS[r.paymentMethod]} · reportado por{' '}
                           {r.reportedByName} a las {r.reportedAt}
                         </p>
-                        {(r.transferReference || r.receiptFileName) && (
+                        {r.transferReference && (
                           <p className="mt-0.5 text-xs text-alma-text-muted">
-                            {r.transferReference ? `Ref. transferencia: ${r.transferReference}` : ''}
-                            {r.transferReference && r.receiptFileName ? ' · ' : ''}
-                            {r.receiptFileName ? (
-                              <span className="inline-flex items-center gap-1">
-                                <Receipt className="h-3 w-3" aria-hidden="true" />
-                                {r.receiptFileName}
-                              </span>
-                            ) : null}
+                            Ref. transferencia: {r.transferReference}
                           </p>
                         )}
                         {r.proofNote && <p className="mt-0.5 text-xs text-alma-text-muted">{r.proofNote}</p>}
@@ -885,8 +875,8 @@ export function Gestion() {
                       </p>
                       {profile.package ? (
                         <p className="mt-2 text-xs text-alma-text-secondary">
-                          Vence el {formatDateLong(profile.package.expiresOn)} · {profile.package.daysUntilExpiry}{' '}
-                          días
+                          Vence el {formatDateLong(profile.package.expiresOn)} ·{' '}
+                          {daysUntil(profile.package.expiresOn, DEMO_TODAY)} días
                         </p>
                       ) : (
                         <p className="mt-2 text-xs text-[#e4a3ab]">Sin paquete activo</p>
@@ -1021,17 +1011,6 @@ export function Gestion() {
                               className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
                             />
                           )}
-                          <input
-                            type="text"
-                            value={onBehalfReceipt}
-                            onChange={(e) => setOnBehalfReceipt(e.target.value)}
-                            placeholder={
-                              onBehalfMethod === 'QR'
-                                ? 'Nombre del archivo del comprobante (recomendado)'
-                                : 'Nombre del archivo del recibo (opcional)'
-                            }
-                            className="min-h-[40px] rounded-lg border border-alma-border bg-alma-surface px-2.5 text-sm text-alma-text placeholder:text-alma-text-muted focus:border-alma-gold focus:outline-none"
-                          />
                           <input
                             type="text"
                             value={onBehalfProof}

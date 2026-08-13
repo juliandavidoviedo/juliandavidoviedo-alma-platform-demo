@@ -36,3 +36,10 @@ export function formatPercentDelta(fraction: number): string {
 export function formatSignedInt(value: number): string {
   return `${value >= 0 ? '+' : ''}${value}`;
 }
+
+/** Whole days from `fromIso` to `targetIso` — never a stored/cached value, always derived on read. */
+export function daysUntil(targetIso: string, fromIso: string): number {
+  const from = new Date(`${fromIso}T00:00:00`);
+  const target = new Date(`${targetIso}T00:00:00`);
+  return Math.round((target.getTime() - from.getTime()) / 86_400_000);
+}

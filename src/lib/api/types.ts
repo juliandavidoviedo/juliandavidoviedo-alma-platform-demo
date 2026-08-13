@@ -78,7 +78,6 @@ export interface PackageInfo {
   totalClasses: number;
   balance: number;
   expiresOn: string; // ISO date, e.g. "2026-09-14"
-  daysUntilExpiry: number;
 }
 
 /** One purchase event — the package sale that produced (or topped up) `PackageInfo`. */
@@ -360,9 +359,10 @@ export const PAYMENT_REPORT_STATUS_LABELS: Record<PaymentReportStatus, string> =
  * remote payment should never be blocked for lacking a physical consecutive
  * that doesn't exist yet on their end.
  *
- * `receiptFileName` is a filename the reporter types in — there is no real
- * upload/persistence in this demo (see PROJECT_CONTEXT.md "still mock"),
- * it just lets the review card show "attached" vs. not.
+ * There is no receipt image field: real upload/persistence isn't implemented
+ * in this demo (see PROJECT_CONTEXT.md "still mock"), and a typed filename
+ * string would misrepresent it as evidence. The physical sale consecutive
+ * assigned at approval is the actual evidence of record.
  */
 export interface PaymentReport {
   reportId: string;
@@ -373,7 +373,6 @@ export interface PaymentReport {
   amount: number;
   paymentMethod: PaymentMethod;
   transferReference: string | null;
-  receiptFileName: string | null;
   proofNote: string | null;
   status: PaymentReportStatus;
   reportedAt: string;
@@ -392,7 +391,6 @@ export interface ReportPaymentInput {
   amount: number;
   paymentMethod: PaymentMethod;
   transferReference?: string;
-  receiptFileName?: string;
   proofNote?: string;
   actedBy: ActorKind;
   actedByName: string;

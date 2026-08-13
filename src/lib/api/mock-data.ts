@@ -306,7 +306,6 @@ export const JULIAN: DemoStudentRecord = {
     totalClasses: 8,
     balance: 5,
     expiresOn: '2026-09-14',
-    daysUntilExpiry: 40,
   },
   packageHistory: [
     {
@@ -404,7 +403,6 @@ export const CAMILA: DemoStudentRecord = {
     totalClasses: 4,
     balance: 3,
     expiresOn: '2026-08-28',
-    daysUntilExpiry: 23,
   },
   packageHistory: [
     {
