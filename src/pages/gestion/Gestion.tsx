@@ -27,7 +27,9 @@ import {
   CATEGORY_LABELS,
   CLASS_RESTORATION_LABELS,
   CLASS_STATUS_LABELS,
+  CONSENT_TYPE_LABELS,
   DEMO_TODAY,
+  DOCUMENT_TYPE_LABELS,
   ENGAGEMENT_LABELS,
   PAYMENT_METHOD_LABELS,
   PAYMENT_REPORT_STATUS_LABELS,
@@ -35,6 +37,7 @@ import {
   ATTENDANCE_INTENT_LABELS,
   ROOM_BOOKING_TYPE_LABELS,
   ROOMS,
+  STUDENT_PROFILE_STATUS_LABELS,
 } from '../../lib/api';
 import type {
   AttendanceIntentStatus,
@@ -47,11 +50,14 @@ import type {
   PaymentReport,
   PaymentReportStatus,
   ReceptionSummary,
+  RecentRegistration,
+  RegistrationDetail,
   RoomBooking,
   RoomBookingType,
   ScheduledClass,
   SearchResult,
   StudentLevel,
+  StudentProfileStatus,
   StudentSummary,
 } from '../../lib/api';
 import { Card } from '../../components/ui/Card';
@@ -60,7 +66,7 @@ import { Button } from '../../components/ui/Button';
 import { StatTile } from '../../components/ui/StatTile';
 import { ActionFeedback } from '../../components/ui/ActionFeedback';
 import { AlmaLoader } from '../../components/ui/AlmaLoader';
-import { daysUntil, formatCOP, formatDateLong, formatDateWithWeekday } from '../../lib/format';
+import { daysUntil, formatCOP, formatDateLong, formatDateTime, formatDateWithWeekday } from '../../lib/format';
 
 interface PackageOption {
   name: string;
@@ -106,6 +112,12 @@ const CLASS_STATUS_TONE: Record<ClassStatus, BadgeTone> = {
   PROGRAMADA: 'neutral',
   CONFIRMADA: 'gold',
   CANCELADA: 'danger',
+};
+
+const STUDENT_PROFILE_STATUS_TONE: Record<StudentProfileStatus, BadgeTone> = {
+  PENDING_REVIEW: 'gold',
+  ACTIVE: 'success',
+  INACTIVE: 'neutral',
 };
 
 type Tab = 'pendientes' | 'mostrador' | 'agenda' | 'salones';
@@ -283,6 +295,10 @@ export function Gestion() {
   const [rejectReason, setRejectReason] = useState('');
   const [reviewingReportId, setReviewingReportId] = useState<string | null>(null);
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
+  const [recentRegistrations, setRecentRegistrations] = useState<RecentRegistration[]>([]);
+  const [expandedRegistrationId, setExpandedRegistrationId] = useState<string | null>(null);
+  const [registrationDetail, setRegistrationDetail] = useState<RegistrationDetail | null>(null);
+  const [loadingRegistrationDetail, setLoadingRegistrationDetail] = useState(false);
   const [confirmingClassId, setConfirmingClassId] = useState<string | null>(null);
   const [cancelingClassId, setCancelingClassId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -332,6 +348,10 @@ export function Gestion() {
     api.frontDesk.getRoomBookings().then(setRoomBookings);
   }
 
+  function loadRecentRegistrations() {
+    api.registration.recent().then(setRecentRegistrations);
+  }
+
   useEffect(() => {
     runSearch('Julián');
     loadRoster();
@@ -340,6 +360,7 @@ export function Gestion() {
     loadSchedule();
     loadPaymentReports();
     loadRoomBookings();
+    loadRecentRegistrations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -471,6 +492,20 @@ export function Gestion() {
     } finally {
       setRestoring(false);
     }
+  }
+
+  /** "Open the student profile" for a public registration — a lightweight PERSON+STUDENT+CONSENTS detail, not the operational (payments/classes) Gestión profile, since that bridge isn't built yet. */
+  async function toggleRegistrationDetail(studentId: string) {
+    if (expandedRegistrationId === studentId) {
+      setExpandedRegistrationId(null);
+      setRegistrationDetail(null);
+      return;
+    }
+    setExpandedRegistrationId(studentId);
+    setLoadingRegistrationDetail(true);
+    const detail = await api.registration.getDetail(studentId);
+    setRegistrationDetail(detail);
+    setLoadingRegistrationDetail(false);
   }
 
   async function approvePayment(reportId: string) {
@@ -761,6 +796,88 @@ export function Gestion() {
               ))}
               {attentionItems.length === 0 && (
                 <li className="py-6 text-center text-sm text-alma-text-muted">Nada pendiente hoy.</li>
+              )}
+            </ul>
+          </Card>
+
+          {/* Public registration intake (/registro-estudiante) — smallest useful view, not a full CRM table */}
+          <Card className="mt-6">
+            <div className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-alma-gold" aria-hidden="true" />
+              <h2 className="font-display text-lg text-alma-text">Registros recientes</h2>
+            </div>
+            <p className="mt-1 text-xs text-alma-text-muted">
+              Alumnos que se registraron públicamente en /registro-estudiante.
+            </p>
+            <ul className="mt-4 divide-y divide-alma-border">
+              {recentRegistrations.map((r) => {
+                const expanded = expandedRegistrationId === r.studentId;
+                return (
+                  <li key={r.studentId} className="py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-alma-text">
+                          {r.fullName} · {PROGRAM_LABELS[r.currentProgram]}
+                        </p>
+                        <p className="text-xs text-alma-text-muted">
+                          {r.phone} · {r.isMinor ? 'Menor de edad' : 'Adulto'} · {formatDateTime(r.registeredAt)}
+                        </p>
+                      </div>
+                      <Badge tone={STUDENT_PROFILE_STATUS_TONE[r.studentStatus]}>
+                        {STUDENT_PROFILE_STATUS_LABELS[r.studentStatus]}
+                      </Badge>
+                    </div>
+                    <Button variant="ghost" className="mt-2" onClick={() => toggleRegistrationDetail(r.studentId)}>
+                      {expanded ? 'Ocultar' : 'Ver perfil'}
+                    </Button>
+                    {expanded && (
+                      <div className="mt-2 rounded-lg border border-alma-border bg-alma-bg p-3 text-xs text-alma-text-secondary">
+                        {loadingRegistrationDetail && !registrationDetail ? (
+                          <AlmaLoader label="Cargando perfil…" />
+                        ) : (
+                          registrationDetail &&
+                          registrationDetail.studentProfile.studentId === r.studentId && (
+                            <div className="flex flex-col gap-1.5">
+                              <p>
+                                {DOCUMENT_TYPE_LABELS[registrationDetail.person.documentType]}{' '}
+                                {registrationDetail.person.documentNumber}
+                              </p>
+                              <p>Nacimiento: {registrationDetail.person.birthDate}</p>
+                              <p>
+                                Contacto de emergencia: {registrationDetail.person.emergencyContactName} (
+                                {registrationDetail.person.emergencyContactPhone})
+                              </p>
+                              {registrationDetail.person.eps && <p>EPS: {registrationDetail.person.eps}</p>}
+                              {registrationDetail.person.isMinor && registrationDetail.person.guardianFullName && (
+                                <p>
+                                  Acudiente: {registrationDetail.person.guardianFullName} (
+                                  {registrationDetail.person.guardianPhone})
+                                </p>
+                              )}
+                              <div className="mt-1">
+                                <p className="text-xs font-medium tracking-wide text-alma-text-muted uppercase">
+                                  Consentimientos
+                                </p>
+                                <ul className="mt-1 flex flex-col gap-0.5">
+                                  {registrationDetail.consents.map((c) => (
+                                    <li key={c.consentId}>
+                                      {c.accepted ? '✓' : '·'} {CONSENT_TYPE_LABELS[c.consentType]}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+              {recentRegistrations.length === 0 && (
+                <li className="py-6 text-center text-sm text-alma-text-muted">
+                  Sin registros públicos todavía.
+                </li>
               )}
             </ul>
           </Card>

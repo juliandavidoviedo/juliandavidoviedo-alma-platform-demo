@@ -28,6 +28,18 @@ export function formatDateWithWeekday(iso: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+const DATE_TIME = new Intl.DateTimeFormat('es-CO', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+/** For real wall-clock timestamps (e.g. registration events) — unlike the rest of the demo, these aren't anchored to DEMO_TODAY. */
+export function formatDateTime(iso: string): string {
+  return DATE_TIME.format(new Date(iso));
+}
+
 export function formatPercentDelta(fraction: number): string {
   const pct = Math.round(fraction * 100);
   return `${pct >= 0 ? '+' : ''}${pct}%`;

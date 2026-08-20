@@ -652,6 +652,12 @@ export interface Person {
 
 export type StudentProfileStatus = 'PENDING_REVIEW' | 'ACTIVE' | 'INACTIVE';
 
+export const STUDENT_PROFILE_STATUS_LABELS: Record<StudentProfileStatus, string> = {
+  PENDING_REVIEW: 'Por confirmar',
+  ACTIVE: 'Activo',
+  INACTIVE: 'Inactivo',
+};
+
 export interface StudentProfile {
   studentId: string;
   personId: string;

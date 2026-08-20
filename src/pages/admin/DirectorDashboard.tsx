@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Lightbulb,
   Users2,
+  UserPlus,
   Wallet,
   CalendarClock,
   Activity,
@@ -81,9 +82,14 @@ export function DirectorDashboard() {
               value={data.studentsAtRisk.length.toString()}
               icon={<AlertTriangle className="h-4 w-4" aria-hidden="true" />}
             />
+            <StatTile
+              label="Estudiantes registrados"
+              value={data.registeredStudents.toString()}
+              icon={<UserPlus className="h-4 w-4" aria-hidden="true" />}
+            />
           </>
         ) : (
-          Array.from({ length: 6 }).map((_, i) => <SkeletonTile key={i} />)
+          Array.from({ length: 7 }).map((_, i) => <SkeletonTile key={i} />)
         )}
       </div>
 

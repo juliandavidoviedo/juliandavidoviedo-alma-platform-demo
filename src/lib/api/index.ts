@@ -38,5 +38,6 @@ export {
   DOCUMENT_TYPE_LABELS,
   EMERGENCY_RELATIONSHIP_LABELS,
   CONSENT_TYPE_LABELS,
+  STUDENT_PROFILE_STATUS_LABELS,
 } from './types';
 export type * from './types';
