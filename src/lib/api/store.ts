@@ -1,11 +1,23 @@
 import { useSyncExternalStore } from 'react';
-import type { AuditEntry, ClassRegistration, PaymentReport, RoomBooking, ScheduledClass } from './types';
+import type {
+  AuditEntry,
+  ClassRegistration,
+  Consent,
+  PaymentReport,
+  Person,
+  RoomBooking,
+  ScheduledClass,
+  StudentProfile,
+} from './types';
 import {
   ACADEMY_SCHEDULE,
   INITIAL_AUDIT_TRAIL,
+  INITIAL_CONSENTS,
   INITIAL_PAYMENT_REPORTS,
+  INITIAL_PERSONS,
   INITIAL_ROOM_BOOKINGS,
   INITIAL_ROSTER,
+  INITIAL_STUDENT_PROFILES,
   INITIAL_STUDENTS,
   type DemoStudentRecord,
 } from './mock-data';
@@ -35,6 +47,10 @@ export interface DemoState {
   roomBookings: RoomBooking[];
   paymentReports: PaymentReport[];
   auditTrail: AuditEntry[];
+  /** Public registration domain (/registro-estudiante) — see types.ts for why this is three normalized arrays, not one form-response row. */
+  persons: Person[];
+  studentProfiles: StudentProfile[];
+  consents: Consent[];
 }
 
 function initialState(): DemoState {
@@ -45,6 +61,9 @@ function initialState(): DemoState {
     roomBookings: INITIAL_ROOM_BOOKINGS,
     paymentReports: INITIAL_PAYMENT_REPORTS,
     auditTrail: INITIAL_AUDIT_TRAIL,
+    persons: INITIAL_PERSONS,
+    studentProfiles: INITIAL_STUDENT_PROFILES,
+    consents: INITIAL_CONSENTS,
   });
 }
 

@@ -7,6 +7,7 @@ import { DirectorDashboard } from './pages/admin/DirectorDashboard';
 import { Gestion } from './pages/gestion/Gestion';
 import { StudentHome } from './pages/student/StudentHome';
 import { Enrollment } from './pages/enrollment/Enrollment';
+import { StudentRegistration } from './pages/registration/StudentRegistration';
 import { Classes } from './pages/classes/Classes';
 import { BlogList } from './pages/blog/BlogList';
 import { BlogPost } from './pages/blog/BlogPost';
@@ -40,6 +41,7 @@ function App() {
             <Route path="/reception" element={<Navigate to="/gestion" replace />} />
             <Route path="/student" element={<StudentHome />} />
             <Route path="/inscripcion" element={<Enrollment />} />
+            <Route path="/registro-estudiante" element={<StudentRegistration />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

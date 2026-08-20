@@ -306,6 +306,8 @@ export interface DirectorDashboard {
   roomOccupancyToday: RoomOccupancyToday[];
   engagementBreakdown: EngagementBreakdown;
   insights: string[];
+  /** Total StudentProfile rows created via public registration — see /registro-estudiante. */
+  registeredStudents: number;
 }
 
 /** A short, human-triaged reason a student needs Gestión's attention today. */
@@ -581,4 +583,181 @@ export interface CreateRoomBookingResult {
   ok: true;
   booking: RoomBooking;
   message: string;
+}
+
+/**
+ * Public student registration (`/registro-estudiante`) — the acquisition/
+ * data-quality surface, deliberately modeled as PERSON → STUDENT → CONSENTS,
+ * not as a single form-response row. Future modules (plans, payments,
+ * classes, attendance, events, CRM) relate to the same `personId`; none of
+ * that is built yet — see PROJECT_CONTEXT.md.
+ *
+ * This is intentionally a separate identity space from `DemoStudentRecord`
+ * (`ST-*`, the operational Gestión/Student-portal model): bridging the two
+ * is future work, not this milestone.
+ */
+export type DocumentType = 'CC' | 'TI' | 'CE' | 'PASAPORTE' | 'RC';
+
+export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+  CC: 'Cédula de ciudadanía',
+  TI: 'Tarjeta de identidad',
+  CE: 'Cédula de extranjería',
+  PASAPORTE: 'Pasaporte',
+  RC: 'Registro civil',
+};
+
+/** Free-text-adjacent but enumerated relationship of an adult's emergency contact. */
+export type EmergencyRelationship = 'MADRE' | 'PADRE' | 'HERMANO_A' | 'PAREJA' | 'AMIGO_A' | 'OTRO';
+
+export const EMERGENCY_RELATIONSHIP_LABELS: Record<EmergencyRelationship, string> = {
+  MADRE: 'Madre',
+  PADRE: 'Padre',
+  HERMANO_A: 'Hermano/a',
+  PAREJA: 'Pareja',
+  AMIGO_A: 'Amigo/a',
+  OTRO: 'Otro',
+};
+
+export type PersonStatus = 'ACTIVE' | 'INACTIVE';
+
+/** Where a Person record originated. Only WEB_REGISTRATION is implemented; the rest are future intake channels. */
+export type RegistrationSource = 'WEB_REGISTRATION' | 'EVENT' | 'WHATSAPP' | 'GESTION' | 'IMPORT';
+
+export interface Person {
+  personId: string;
+  firstName: string;
+  lastName: string;
+  documentType: DocumentType;
+  documentNumber: string;
+  birthDate: string; // ISO date
+  isMinor: boolean;
+  phone: string;
+  email: string;
+  emergencyContactName: string;
+  emergencyContactRelationship: EmergencyRelationship;
+  emergencyContactPhone: string;
+  /** Sensitive — EPS is captured for emergency support only, never displayed outside Gestión/Admin. */
+  eps: string;
+  guardianFullName: string | null;
+  guardianDocumentType: DocumentType | null;
+  guardianDocumentNumber: string | null;
+  guardianPhone: string | null;
+  guardianEmail: string | null;
+  guardianRelationship: GuardianRelationship | null;
+  status: PersonStatus;
+  source: RegistrationSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type StudentProfileStatus = 'PENDING_REVIEW' | 'ACTIVE' | 'INACTIVE';
+
+export interface StudentProfile {
+  studentId: string;
+  personId: string;
+  currentProgram: ProgramName;
+  interests: string;
+  studentStatus: StudentProfileStatus;
+  joinedAt: string;
+}
+
+/**
+ * Five independently-gated consent types — never a blanket "accept all".
+ * `policyVersion` and legal copy are explicitly provisional; see
+ * `REGISTRATION_POLICY_VERSION` and the "Texto legal sujeto a validación"
+ * copy in the registration page itself.
+ */
+export type ConsentType =
+  | 'PERSONAL_DATA'
+  | 'SENSITIVE_HEALTH_DATA'
+  | 'INTERNAL_IMAGE'
+  | 'PUBLIC_IMAGE'
+  | 'MARKETING_COMMUNICATIONS';
+
+export const CONSENT_TYPE_LABELS: Record<ConsentType, string> = {
+  PERSONAL_DATA: 'Tratamiento de datos personales',
+  SENSITIVE_HEALTH_DATA: 'Tratamiento de datos sensibles de salud (EPS)',
+  INTERNAL_IMAGE: 'Uso interno de imagen/video',
+  PUBLIC_IMAGE: 'Uso público/redes sociales de imagen/video',
+  MARKETING_COMMUNICATIONS: 'Comunicaciones de mercadeo/informativas',
+};
+
+export interface Consent {
+  consentId: string;
+  personId: string;
+  consentType: ConsentType;
+  accepted: boolean;
+  acceptedAt: string | null;
+  policyVersion: string;
+  captureChannel: 'WEB_REGISTRATION';
+  /** For minors: name of the guardian who accepted on their behalf. Null for adult self-registration. */
+  guardianAcceptedBy: string | null;
+}
+
+export interface RegistrationConsentInput {
+  personalData: boolean;
+  sensitiveHealth: boolean;
+  internalImage: boolean;
+  publicImage: boolean;
+  marketing: boolean;
+}
+
+export interface RegistrationSubmitInput {
+  firstName: string;
+  lastName: string;
+  documentType: DocumentType;
+  documentNumber: string;
+  birthDate: string;
+  phone: string;
+  email: string;
+  currentProgram: ProgramName;
+  interests?: string;
+  emergencyContactName: string;
+  emergencyContactRelationship: EmergencyRelationship;
+  emergencyContactPhone: string;
+  eps: string;
+  guardianFullName?: string;
+  guardianDocumentType?: DocumentType;
+  guardianDocumentNumber?: string;
+  guardianPhone?: string;
+  guardianEmail?: string;
+  guardianRelationship?: GuardianRelationship;
+  consents: RegistrationConsentInput;
+}
+
+export interface RegistrationSubmitResult {
+  ok: true;
+  duplicate: boolean;
+  personId: string;
+  studentId: string;
+  message: string;
+}
+
+export interface RegistrationLookupInput {
+  documentNumber: string;
+}
+
+export interface RegistrationLookupResult {
+  found: boolean;
+  personId: string | null;
+  studentId: string | null;
+}
+
+/** One row in Gestión's "Registros recientes" — a read projection, not the canonical model. */
+export interface RecentRegistration {
+  personId: string;
+  studentId: string;
+  fullName: string;
+  phone: string;
+  currentProgram: ProgramName;
+  isMinor: boolean;
+  registeredAt: string;
+  studentStatus: StudentProfileStatus;
+}
+
+/** Full detail for "open the student profile" from Gestión's recent-registrations list. */
+export interface RegistrationDetail {
+  person: Person;
+  studentProfile: StudentProfile;
+  consents: Consent[];
 }

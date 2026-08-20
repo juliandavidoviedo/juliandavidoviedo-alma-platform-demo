@@ -34,6 +34,11 @@ import type {
   ManualCheckInResult,
   PaymentReport,
   ReceptionSummary,
+  RecentRegistration,
+  RegistrationDetail,
+  RegistrationLookupResult,
+  RegistrationSubmitInput,
+  RegistrationSubmitResult,
   RejectPaymentInput,
   ReportPaymentInput,
   ReportPaymentResult,
@@ -137,6 +142,16 @@ export const api = {
 
   public: {
     enroll: (input: EnrollmentInput) => callAction<EnrollmentResult>('enrollment.create', input),
+  },
+
+  registration: {
+    submit: (input: RegistrationSubmitInput) =>
+      callAction<RegistrationSubmitResult>('registration.submit', input),
+    lookup: (documentNumber: string) =>
+      callAction<RegistrationLookupResult>('registration.lookup', { documentNumber }),
+    recent: () => callAction<RecentRegistration[]>('registration.recent'),
+    getDetail: (studentId: string) =>
+      callAction<RegistrationDetail>('registration.detail', { studentId }),
   },
 };
 
