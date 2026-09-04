@@ -9,10 +9,14 @@
   # downgrading the toolchain.
   NODE_VERSION = "20"
 
-# The demo is a single-page app: /admin, /reception, /student and /checkin are
-# client-side routes with no file on disk. Without this fallback a page refresh
-# or a shared deep link returns Netlify's 404 — a failure that never shows up in
-# `vite dev`, only in production.
+[functions]
+  directory = "netlify/functions"
+
+# The app is a single-page app: /admin, /gestion, /student and /inscripcion
+# are client-side routes with no file on disk. Without this fallback a page
+# refresh or a shared deep link returns Netlify's 404 — a failure that never
+# shows up in `vite dev`, only in production. Functions are matched first by
+# Netlify regardless of redirect order, so /.netlify/functions/api is safe.
 [[redirects]]
   from = "/*"
   to = "/index.html"

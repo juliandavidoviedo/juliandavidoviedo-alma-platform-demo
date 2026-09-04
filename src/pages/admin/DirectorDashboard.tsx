@@ -1,0 +1,217 @@
+import { useEffect, useState } from 'react';
+import {
+  AlertTriangle,
+  Lightbulb,
+  Users2,
+  UserPlus,
+  Wallet,
+  CalendarClock,
+  Activity,
+  DoorOpen,
+} from 'lucide-react';
+import { api, CATEGORY_LABELS } from '../../lib/api';
+import type { DirectorDashboard as DirectorDashboardData } from '../../lib/api';
+import { Card } from '../../components/ui/Card';
+import { StatTile } from '../../components/ui/StatTile';
+import { Badge } from '../../components/ui/Badge';
+import { formatCOP, formatPercentDelta, formatSignedInt } from '../../lib/format';
+
+function SkeletonTile() {
+  return <div className="h-[104px] animate-pulse rounded-2xl border border-alma-border bg-alma-surface" />;
+}
+
+export function DirectorDashboard() {
+  const [data, setData] = useState<DirectorDashboardData | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api.admin.getDashboard().then((result) => {
+      if (active) setData(result);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      <header className="flex flex-col gap-1">
+        <span className="text-sm text-alma-text-muted">Panel de dirección · Iván</span>
+        <h1 className="font-display text-3xl text-alma-text">¿Cómo está operando la academia hoy?</h1>
+        <p className="text-sm text-alma-text-muted">
+          Visibilidad operativa y planeación de clases — {data ? data.monthLabel : 'cargando…'}
+        </p>
+      </header>
+
+      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {data ? (
+          <>
+            <StatTile
+              label="Alumnos activos"
+              value={data.activeStudents.toString()}
+              delta={formatSignedInt(data.activeStudentsDelta)}
+              deltaTone={data.activeStudentsDelta >= 0 ? 'positive' : 'negative'}
+              icon={<Users2 className="h-4 w-4" aria-hidden="true" />}
+            />
+            <StatTile
+              label="Caja del mes"
+              value={formatCOP(data.monthlyCash)}
+              delta={formatPercentDelta(data.monthlyCashDelta)}
+              deltaTone={data.monthlyCashDelta >= 0 ? 'positive' : 'negative'}
+              icon={<Wallet className="h-4 w-4" aria-hidden="true" />}
+            />
+            <StatTile
+              label="Asistencias"
+              value={data.attendances.toString()}
+              delta={formatPercentDelta(data.attendancesDelta)}
+              deltaTone={data.attendancesDelta >= 0 ? 'positive' : 'negative'}
+              icon={<Activity className="h-4 w-4" aria-hidden="true" />}
+            />
+            <StatTile
+              label="Paquetes por vencer (7 días)"
+              value={data.packagesExpiringSoon.toString()}
+              icon={<CalendarClock className="h-4 w-4" aria-hidden="true" />}
+            />
+            <StatTile
+              label="Ingreso diferido"
+              value={formatCOP(data.deferredRevenue)}
+              icon={<Wallet className="h-4 w-4" aria-hidden="true" />}
+            />
+            <StatTile
+              label="Alumnos en riesgo"
+              value={data.studentsAtRisk.length.toString()}
+              icon={<AlertTriangle className="h-4 w-4" aria-hidden="true" />}
+            />
+            <StatTile
+              label="Estudiantes registrados"
+              value={data.registeredStudents.toString()}
+              icon={<UserPlus className="h-4 w-4" aria-hidden="true" />}
+            />
+          </>
+        ) : (
+          Array.from({ length: 7 }).map((_, i) => <SkeletonTile key={i} />)
+        )}
+      </div>
+
+      {data && (
+        <>
+          {/* Insights */}
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {data.insights.map((insight) => (
+              <Card key={insight} className="flex gap-3 border-alma-gold/25 bg-alma-gold/5">
+                <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-alma-gold" aria-hidden="true" />
+                <p className="text-sm text-alma-text-secondary">{insight}</p>
+              </Card>
+            ))}
+          </div>
+
+          <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {/* Students at risk */}
+            <Card>
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-lg text-alma-text">Alumnos en riesgo de fuga</h2>
+              </div>
+              <p className="mt-1 text-xs text-alma-text-muted">
+                21 días o más sin venir, con clases disponibles.
+              </p>
+
+              {/* Engagement breakdown — a read of the whole roster, not just the at-risk few */}
+              <div className="mt-4 flex gap-2 text-xs">
+                <span className="rounded-full border border-alma-border bg-alma-bg px-3 py-1 text-alma-text-secondary">
+                  Creciendo {data.engagementBreakdown.creciendo}
+                </span>
+                <span className="rounded-full border border-alma-border bg-alma-bg px-3 py-1 text-alma-text-secondary">
+                  Estable {data.engagementBreakdown.estable}
+                </span>
+                <span className="rounded-full border border-alma-wine/40 bg-alma-wine/10 px-3 py-1 text-[#e4a3ab]">
+                  En riesgo {data.engagementBreakdown.enRiesgo}
+                </span>
+              </div>
+
+              <ul className="mt-4 divide-y divide-alma-border">
+                {data.studentsAtRisk.map((student) => (
+                  <li key={student.studentId} className="flex items-center justify-between py-3">
+                    <div>
+                      <p className="text-sm font-medium text-alma-text">{student.name}</p>
+                      <p className="text-xs text-alma-text-muted">
+                        {student.daysAbsent} días sin venir · {student.availableClasses} clase
+                        {student.availableClasses === 1 ? '' : 's'} disponible
+                        {student.availableClasses === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <Badge tone="danger">Riesgo</Badge>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+
+            {/* Rooms near capacity — today only, since a room hosts several independent classes */}
+            <Card>
+              <div className="flex items-center gap-2">
+                <DoorOpen className="h-4 w-4 text-alma-gold" aria-hidden="true" />
+                <h2 className="font-display text-lg text-alma-text">Ocupación por salón — hoy</h2>
+              </div>
+              <p className="mt-1 text-xs text-alma-text-muted">
+                Pico de ocupación (confirmados / cupo cómodo) entre las clases de hoy en cada salón.
+              </p>
+              <ul className="mt-4 space-y-4">
+                {data.roomOccupancyToday.map((room) => (
+                  <li key={room.roomId}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-alma-text">{room.name}</span>
+                      <span className="text-alma-text-muted">{Math.round(room.peakOccupancy * 100)}%</span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-alma-border">
+                      <div
+                        className="h-full rounded-full bg-alma-gold"
+                        style={{ width: `${Math.round(room.peakOccupancy * 100)}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-alma-text-muted">
+                      Cupo cómodo {room.comfortableCapacity} · {room.classesToday} clase
+                      {room.classesToday === 1 ? '' : 's'} hoy
+                      {room.nearCapacity ? ' · cerca del cupo' : ''}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </div>
+
+          {/* Classes today — the primary "how is the academy operating" view */}
+          <Card className="mt-6">
+            <h2 className="font-display text-lg text-alma-text">Clases de hoy</h2>
+            <p className="mt-1 text-xs text-alma-text-muted">
+              Esperados/confirmados por clase, no un solo evento — Alma corre clases simultáneas en
+              salones distintos.
+            </p>
+
+            <ul className="mt-4 divide-y divide-alma-border">
+              {data.classesToday.map((cls) => {
+                const occupancy = cls.confirmedCount / cls.capacity;
+                return (
+                  <li key={cls.classId} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-alma-text">
+                        {cls.name}{' '}
+                        <span className="text-xs font-normal text-alma-text-muted">
+                          · {CATEGORY_LABELS[cls.category]}
+                        </span>
+                      </p>
+                      <p className="text-xs text-alma-text-muted">
+                        {cls.startTime}–{cls.endTime} · {cls.roomName} · Prof. {cls.teacher}
+                      </p>
+                    </div>
+                    <Badge tone={occupancy >= 0.85 ? 'gold' : occupancy < 0.5 ? 'danger' : 'neutral'}>
+                      {cls.confirmedCount}/{cls.capacity} confirmados
+                    </Badge>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
