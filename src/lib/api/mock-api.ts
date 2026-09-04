@@ -7,8 +7,6 @@ import type {
   ClassRegistration,
   ClassRestorationReason,
   ClassRoster,
-  Consent,
-  ConsentType,
   ConfirmAttendanceResult,
   ConfirmTeacherResult,
   CreateRoomBookingInput,
@@ -23,7 +21,6 @@ import type {
   PackagePurchase,
   PaymentMethod,
   PaymentReport,
-  Person,
   ReceptionSummary,
   RecentRegistration,
   RegistrationDetail,
@@ -41,7 +38,6 @@ import type {
   SearchResult,
   SellPackageInput,
   SellPackageResult,
-  StudentProfile,
   StudentSummary,
   UpcomingClassStatus,
 } from './types';
@@ -54,7 +50,6 @@ import {
   DEMO_TODAY,
   DIRECTOR_DASHBOARD,
   JULIAN,
-  REGISTRATION_POLICY_VERSION,
   ROOMS,
 } from './mock-data';
 import { getState, setState, type DemoState } from './store';
@@ -724,265 +719,50 @@ function performEnroll(state: DemoState, input: EnrollmentInput): { next: DemoSt
   };
 }
 
-function nextPersonId(state: DemoState): string {
-  return `PER-${String(state.persons.length + 1).padStart(4, '0')}`;
-}
+const REGISTRATION_FUNCTION_PATH = '/.netlify/functions/api';
 
-function nextStudentProfileId(state: DemoState): string {
-  return `STU-${String(state.studentProfiles.length + 1).padStart(4, '0')}`;
-}
-
-/** Same 18-years-old cutoff the registration form itself uses client-side — a real-world fact, independent of DEMO_TODAY. */
-function isMinorFromBirthDate(birthDateIso: string): boolean {
-  const birth = new Date(`${birthDateIso}T00:00:00`);
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const hadBirthdayThisYear =
-    today.getMonth() > birth.getMonth() ||
-    (today.getMonth() === birth.getMonth() && today.getDate() >= birth.getDate());
-  if (!hadBirthdayThisYear) age -= 1;
-  return age < 18;
-}
-
-/** Five independent consent records — never one blanket flag. Re-issued (fresh acceptedAt) on every submit, including updates. */
-function buildConsentRecords(
-  state: DemoState,
-  personId: string,
-  consents: RegistrationSubmitInput['consents'],
-  guardianAcceptedBy: string | null,
-): Consent[] {
-  const acceptedAt = new Date().toISOString();
-  const entries: Array<[ConsentType, boolean]> = [
-    ['PERSONAL_DATA', consents.personalData],
-    ['SENSITIVE_HEALTH_DATA', consents.sensitiveHealth],
-    ['INTERNAL_IMAGE', consents.internalImage],
-    ['PUBLIC_IMAGE', consents.publicImage],
-    ['MARKETING_COMMUNICATIONS', consents.marketing],
-  ];
-  return entries.map(([consentType, accepted], i): Consent => ({
-    consentId: `CNS-${String(state.consents.length + i + 1).padStart(5, '0')}`,
-    personId,
-    consentType,
-    accepted,
-    acceptedAt: accepted ? acceptedAt : null,
-    policyVersion: REGISTRATION_POLICY_VERSION,
-    captureChannel: 'WEB_REGISTRATION',
-    guardianAcceptedBy,
-  }));
+interface RegistrationEnvelope<T> {
+  ok: boolean;
+  data?: T;
+  error?: { code: string; message: string };
 }
 
 /**
- * Public registration (/registro-estudiante) — PERSON → STUDENT → CONSENTS.
- * Document number is the primary duplicate-matching key: a match updates
- * the existing person/profile/consents in place rather than creating a
- * second record or silently merging anything — see PROJECT_CONTEXT.md.
+ * Registration is the one slice of "demo" mode that is real, even while
+ * everything else in this file stays in-memory: people registering at
+ * /registro-estudiante must persist for real. It goes through the SAME
+ * Netlify Function proxy as pilot-api.ts (-> Apps Script -> Sheets:
+ * Personas/Estudiantes/ContactosEmergencia/Consentimientos), regardless of
+ * VITE_APP_MODE. Action names are prefixed `registration.` to match the
+ * Apps Script router. This mirrors pilot-api.ts's `callAction` on purpose
+ * but stays local — the two adapters are meant to remain independent.
  */
-function performRegistrationSubmit(
-  state: DemoState,
-  input: RegistrationSubmitInput,
-): { next: DemoState; result: RegistrationSubmitResult } {
-  const firstName = input.firstName.trim();
-  const lastName = input.lastName.trim();
-  const documentNumber = input.documentNumber.trim();
-  if (!firstName || !lastName) throw new Error('VALIDATION_ERROR: nombre y apellido son obligatorios');
-  if (!documentNumber) throw new Error('VALIDATION_ERROR: el número de documento es obligatorio');
-  if (!input.birthDate) throw new Error('VALIDATION_ERROR: la fecha de nacimiento es obligatoria');
-  if (!input.phone.trim()) throw new Error('VALIDATION_ERROR: el teléfono es obligatorio');
-  if (!input.emergencyContactName.trim() || !input.emergencyContactPhone.trim()) {
-    throw new Error('VALIDATION_ERROR: el contacto de emergencia es obligatorio');
-  }
-  if (!input.consents.personalData) {
-    throw new Error('VALIDATION_ERROR: se requiere el consentimiento de datos personales');
-  }
-  if (input.eps.trim() && !input.consents.sensitiveHealth) {
-    throw new Error('VALIDATION_ERROR: se requiere el consentimiento de datos sensibles al registrar EPS');
-  }
-
-  const isMinor = isMinorFromBirthDate(input.birthDate);
-  if (
-    isMinor &&
-    (!input.guardianFullName?.trim() ||
-      !input.guardianDocumentType ||
-      !input.guardianDocumentNumber?.trim() ||
-      !input.guardianPhone?.trim() ||
-      !input.guardianEmail?.trim() ||
-      !input.guardianRelationship)
-  ) {
-    throw new Error('VALIDATION_ERROR: los datos del acudiente son obligatorios para menores de edad');
-  }
-
-  const now = new Date().toISOString();
-  const existing = state.persons.find(
-    (p) => p.documentType === input.documentType && p.documentNumber === documentNumber,
-  );
-
-  const guardianFields = isMinor
-    ? {
-        guardianFullName: input.guardianFullName!.trim(),
-        guardianDocumentType: input.guardianDocumentType!,
-        guardianDocumentNumber: input.guardianDocumentNumber!.trim(),
-        guardianPhone: input.guardianPhone!.trim(),
-        guardianEmail: input.guardianEmail!.trim(),
-        guardianRelationship: input.guardianRelationship ?? null,
-      }
-    : {
-        guardianFullName: null,
-        guardianDocumentType: null,
-        guardianDocumentNumber: null,
-        guardianPhone: null,
-        guardianEmail: null,
-        guardianRelationship: null,
-      };
-
-  if (existing) {
-    const updatedPerson: Person = {
-      ...existing,
-      firstName,
-      lastName,
-      birthDate: input.birthDate,
-      isMinor,
-      phone: input.phone.trim(),
-      email: input.email.trim(),
-      emergencyContactName: input.emergencyContactName.trim(),
-      emergencyContactRelationship: input.emergencyContactRelationship,
-      emergencyContactPhone: input.emergencyContactPhone.trim(),
-      eps: input.eps.trim(),
-      ...guardianFields,
-      updatedAt: now,
-    };
-    const existingProfile = state.studentProfiles.find((sp) => sp.personId === existing.personId);
-    const updatedProfile: StudentProfile = existingProfile
-      ? {
-          ...existingProfile,
-          currentProgram: input.currentProgram,
-          interests: input.interests?.trim() || existingProfile.interests,
-        }
-      : {
-          studentId: nextStudentProfileId(state),
-          personId: existing.personId,
-          currentProgram: input.currentProgram,
-          interests: input.interests?.trim() ?? '',
-          studentStatus: 'PENDING_REVIEW',
-          joinedAt: now.slice(0, 10),
-        };
-
-    const newConsents = buildConsentRecords(
-      state,
-      existing.personId,
-      input.consents,
-      isMinor ? updatedPerson.guardianFullName : null,
-    );
-    const remainingConsents = state.consents.filter((c) => c.personId !== existing.personId);
-
-    return {
-      next: {
-        ...state,
-        persons: state.persons.map((p) => (p.personId === existing.personId ? updatedPerson : p)),
-        studentProfiles: existingProfile
-          ? state.studentProfiles.map((sp) => (sp.studentId === existingProfile.studentId ? updatedProfile : sp))
-          : [...state.studentProfiles, updatedProfile],
-        consents: [...remainingConsents, ...newConsents],
-      },
-      result: {
-        ok: true,
-        duplicate: true,
-        personId: existing.personId,
-        studentId: updatedProfile.studentId,
-        message: `Ya existe un registro con este documento — actualizamos el perfil de ${firstName} (simulación).`,
-      },
-    };
-  }
-
-  const personId = nextPersonId(state);
-  const studentId = nextStudentProfileId(state);
-  const person: Person = {
-    personId,
-    firstName,
-    lastName,
-    documentType: input.documentType,
-    documentNumber,
-    birthDate: input.birthDate,
-    isMinor,
-    phone: input.phone.trim(),
-    email: input.email.trim(),
-    emergencyContactName: input.emergencyContactName.trim(),
-    emergencyContactRelationship: input.emergencyContactRelationship,
-    emergencyContactPhone: input.emergencyContactPhone.trim(),
-    eps: input.eps.trim(),
-    ...guardianFields,
-    status: 'ACTIVE',
-    source: 'WEB_REGISTRATION',
-    createdAt: now,
-    updatedAt: now,
-  };
-  const studentProfile: StudentProfile = {
-    studentId,
-    personId,
-    currentProgram: input.currentProgram,
-    interests: input.interests?.trim() ?? '',
-    studentStatus: 'PENDING_REVIEW',
-    joinedAt: now.slice(0, 10),
-  };
-  const consents = buildConsentRecords(state, personId, input.consents, isMinor ? person.guardianFullName : null);
-
-  const who = isMinor ? `${firstName} (registrado por ${person.guardianFullName})` : firstName;
-
-  return {
-    next: {
-      ...state,
-      persons: [...state.persons, person],
-      studentProfiles: [...state.studentProfiles, studentProfile],
-      consents: [...state.consents, ...consents],
-    },
-    result: {
-      ok: true,
-      duplicate: false,
-      personId,
-      studentId,
-      message: `Registro creado (simulación) para ${who}. Jonathan o Iván confirmarán tu plan.`,
-    },
-  };
-}
-
-function performRegistrationLookup(state: DemoState, documentNumber: string): RegistrationLookupResult {
-  const trimmed = documentNumber.trim();
-  if (!trimmed) return { found: false, personId: null, studentId: null };
-  const person = state.persons.find((p) => p.documentNumber === trimmed);
-  if (!person) return { found: false, personId: null, studentId: null };
-  const profile = state.studentProfiles.find((sp) => sp.personId === person.personId);
-  return { found: true, personId: person.personId, studentId: profile?.studentId ?? null };
-}
-
-/** Most recently created registrations first — insertion order, capped for Gestión's compact list. */
-function getRecentRegistrations(state: DemoState): RecentRegistration[] {
-  return [...state.studentProfiles]
-    .reverse()
-    .slice(0, 20)
-    .flatMap((sp): RecentRegistration[] => {
-      const person = state.persons.find((p) => p.personId === sp.personId);
-      if (!person) return [];
-      return [
-        {
-          personId: person.personId,
-          studentId: sp.studentId,
-          fullName: `${person.firstName} ${person.lastName}`,
-          phone: person.phone,
-          currentProgram: sp.currentProgram,
-          isMinor: person.isMinor,
-          registeredAt: person.createdAt,
-          studentStatus: sp.studentStatus,
-        },
-      ];
+async function callRegistrationFunction<T>(action: string, data: unknown = {}): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(REGISTRATION_FUNCTION_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: `registration.${action}`, data }),
     });
-}
+  } catch {
+    throw new Error('NETWORK_ERROR: no se pudo contactar el servidor. Revisa tu conexión e intenta de nuevo.');
+  }
 
-function getRegistrationDetail(state: DemoState, studentId: string): RegistrationDetail {
-  const studentProfile = state.studentProfiles.find((sp) => sp.studentId === studentId);
-  if (!studentProfile) throw new Error(`NOT_FOUND: no existe el registro "${studentId}"`);
-  const person = state.persons.find((p) => p.personId === studentProfile.personId);
-  if (!person) throw new Error(`NOT_FOUND: no existe la persona del registro "${studentId}"`);
-  const consents = state.consents.filter((c) => c.personId === person.personId);
-  return { person, studentProfile, consents };
+  let body: RegistrationEnvelope<T>;
+  try {
+    body = await res.json();
+  } catch {
+    throw new Error(`NETWORK_ERROR: respuesta inválida del servidor (HTTP ${res.status}).`);
+  }
+
+  if (!body.ok) {
+    const code = body.error?.code ?? 'INTERNAL_ERROR';
+    const message = body.error?.message ?? 'Ocurrió un error inesperado.';
+    throw new Error(`${code}: ${message}`);
+  }
+
+  return body.data as T;
 }
 
 export const api = {
@@ -990,11 +770,15 @@ export const api = {
     async getDashboard(): Promise<DirectorDashboard> {
       await delay();
       const state = getState();
+      // Approximate: registration.recent is capped at 20 server-side (no dedicated count route yet).
+      const registeredStudents = await callRegistrationFunction<RecentRegistration[]>('recent')
+        .then((rows) => rows.length)
+        .catch(() => 0);
       return {
         ...DIRECTOR_DASHBOARD,
         classesToday: computeClassesToday(state.schedule),
         roomOccupancyToday: computeRoomOccupancyToday(state.schedule),
-        registeredStudents: state.studentProfiles.length,
+        registeredStudents,
       };
     },
   },
@@ -1358,23 +1142,17 @@ export const api = {
   },
 
   registration: {
-    async submit(input: RegistrationSubmitInput): Promise<RegistrationSubmitResult> {
-      await delay(500);
-      const { next, result } = performRegistrationSubmit(getState(), input);
-      setState(() => next);
-      return result;
+    submit(input: RegistrationSubmitInput): Promise<RegistrationSubmitResult> {
+      return callRegistrationFunction<RegistrationSubmitResult>('submit', input);
     },
-    async lookup(documentNumber: string): Promise<RegistrationLookupResult> {
-      await delay(300);
-      return performRegistrationLookup(getState(), documentNumber);
+    lookup(documentNumber: string): Promise<RegistrationLookupResult> {
+      return callRegistrationFunction<RegistrationLookupResult>('lookup', { documentNumber });
     },
-    async recent(): Promise<RecentRegistration[]> {
-      await delay(300);
-      return getRecentRegistrations(getState());
+    recent(): Promise<RecentRegistration[]> {
+      return callRegistrationFunction<RecentRegistration[]>('recent');
     },
-    async getDetail(studentId: string): Promise<RegistrationDetail> {
-      await delay(300);
-      return getRegistrationDetail(getState(), studentId);
+    getDetail(studentId: string): Promise<RegistrationDetail> {
+      return callRegistrationFunction<RegistrationDetail>('detail', { studentId });
     },
   },
 };

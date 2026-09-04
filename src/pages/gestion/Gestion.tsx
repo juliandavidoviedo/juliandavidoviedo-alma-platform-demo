@@ -349,7 +349,7 @@ export function Gestion() {
   }
 
   function loadRecentRegistrations() {
-    api.registration.recent().then(setRecentRegistrations);
+    api.registration.recent().then(setRecentRegistrations).catch(() => setRecentRegistrations([]));
   }
 
   useEffect(() => {
@@ -503,9 +503,15 @@ export function Gestion() {
     }
     setExpandedRegistrationId(studentId);
     setLoadingRegistrationDetail(true);
-    const detail = await api.registration.getDetail(studentId);
-    setRegistrationDetail(detail);
-    setLoadingRegistrationDetail(false);
+    try {
+      const detail = await api.registration.getDetail(studentId);
+      setRegistrationDetail(detail);
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'No se pudo cargar el perfil.');
+      setExpandedRegistrationId(null);
+    } finally {
+      setLoadingRegistrationDetail(false);
+    }
   }
 
   async function approvePayment(reportId: string) {

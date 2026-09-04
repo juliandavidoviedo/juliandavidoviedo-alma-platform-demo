@@ -6,8 +6,8 @@ import { Landing } from './pages/Landing';
 import { DirectorDashboard } from './pages/admin/DirectorDashboard';
 import { Gestion } from './pages/gestion/Gestion';
 import { StudentHome } from './pages/student/StudentHome';
-import { Enrollment } from './pages/enrollment/Enrollment';
 import { StudentRegistration } from './pages/registration/StudentRegistration';
+import { Privacy } from './pages/Privacy';
 import { Classes } from './pages/classes/Classes';
 import { BlogList } from './pages/blog/BlogList';
 import { BlogPost } from './pages/blog/BlogPost';
@@ -40,8 +40,11 @@ function App() {
             <Route path="/gestion" element={<Gestion />} />
             <Route path="/reception" element={<Navigate to="/gestion" replace />} />
             <Route path="/student" element={<StudentHome />} />
-            <Route path="/inscripcion" element={<Enrollment />} />
+            {/* /inscripcion is the old, non-persistent mock enrollment form — redirected so nobody's real
+                pilot registration is silently lost in the in-memory demo instead of /registro-estudiante. */}
+            <Route path="/inscripcion" element={<Navigate to="/registro-estudiante" replace />} />
             <Route path="/registro-estudiante" element={<StudentRegistration />} />
+            <Route path="/privacidad" element={<Privacy />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

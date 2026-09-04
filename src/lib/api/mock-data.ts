@@ -5,14 +5,12 @@ import type {
   ClassCategory,
   ClassRegistration,
   ClassStatus,
-  Consent,
   DanceClassInfo,
   DirectorDashboard,
   EngagementInfo,
   PackageInfo,
   PackagePurchase,
   PaymentReport,
-  Person,
   PointsInfo,
   ProgramName,
   Room,
@@ -20,7 +18,6 @@ import type {
   RoomOccupancyToday,
   ScheduledClass,
   StudentLevel,
-  StudentProfile,
   DanceRole,
 } from './types';
 
@@ -657,15 +654,3 @@ export const ATTENTION_ITEMS: AttentionItem[] = [
  */
 export const INITIAL_PAYMENT_REPORTS: PaymentReport[] = [];
 export const INITIAL_AUDIT_TRAIL: AuditEntry[] = [];
-
-/**
- * The public registration surface (/registro-estudiante) — PERSON → STUDENT
- * → CONSENTS, deliberately empty here too: it's meant to be populated live
- * by real submissions during validation, not pre-seeded fixtures. Synthetic
- * data only, per PROJECT_CONTEXT.md privacy rules — never real students.
- */
-export const INITIAL_PERSONS: Person[] = [];
-export const INITIAL_STUDENT_PROFILES: StudentProfile[] = [];
-export const INITIAL_CONSENTS: Consent[] = [];
-
-export const REGISTRATION_POLICY_VERSION = 'v0-provisional';

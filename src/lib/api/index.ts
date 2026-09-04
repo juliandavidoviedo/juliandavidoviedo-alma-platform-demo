@@ -23,7 +23,8 @@ export const APP_MODE: 'demo' | 'pilot' = import.meta.env.VITE_APP_MODE === 'pil
 export const api = APP_MODE === 'pilot' ? pilotApi : mockApi;
 
 export { useDemoState, resetState } from './store';
-export { JULIAN, ROOMS, DEMO_TODAY, REGISTRATION_POLICY_VERSION } from './mock-data';
+export { JULIAN, ROOMS, DEMO_TODAY } from './mock-data';
+export { REGISTRATION_POLICY_VERSION } from './registration-policy';
 export {
   PAYMENT_METHOD_LABELS,
   ENGAGEMENT_LABELS,

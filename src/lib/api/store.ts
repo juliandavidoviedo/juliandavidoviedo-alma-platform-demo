@@ -1,23 +1,11 @@
 import { useSyncExternalStore } from 'react';
-import type {
-  AuditEntry,
-  ClassRegistration,
-  Consent,
-  PaymentReport,
-  Person,
-  RoomBooking,
-  ScheduledClass,
-  StudentProfile,
-} from './types';
+import type { AuditEntry, ClassRegistration, PaymentReport, RoomBooking, ScheduledClass } from './types';
 import {
   ACADEMY_SCHEDULE,
   INITIAL_AUDIT_TRAIL,
-  INITIAL_CONSENTS,
   INITIAL_PAYMENT_REPORTS,
-  INITIAL_PERSONS,
   INITIAL_ROOM_BOOKINGS,
   INITIAL_ROSTER,
-  INITIAL_STUDENT_PROFILES,
   INITIAL_STUDENTS,
   type DemoStudentRecord,
 } from './mock-data';
@@ -39,6 +27,14 @@ import {
  * let a confirm/cancel go unseen by Gestión/Admin; `mock-api.ts` now always
  * looks today's class up fresh from `schedule` (see `CURRENT_CLASS_ID` in
  * `mock-data.ts`).
+ *
+ * The public registration domain (Person/StudentProfile/Consent,
+ * /registro-estudiante) is NOT part of this in-memory store — unlike
+ * everything else here, pilot registrations must survive a page reload, so
+ * they're persisted server-side via Netlify Blobs instead. See
+ * `netlify/functions/registration.ts` and `mock-api.ts`'s `registration`
+ * namespace, which calls that function directly regardless of demo/pilot
+ * mode.
  */
 export interface DemoState {
   students: Record<string, DemoStudentRecord>;
@@ -47,10 +43,6 @@ export interface DemoState {
   roomBookings: RoomBooking[];
   paymentReports: PaymentReport[];
   auditTrail: AuditEntry[];
-  /** Public registration domain (/registro-estudiante) — see types.ts for why this is three normalized arrays, not one form-response row. */
-  persons: Person[];
-  studentProfiles: StudentProfile[];
-  consents: Consent[];
 }
 
 function initialState(): DemoState {
@@ -61,9 +53,6 @@ function initialState(): DemoState {
     roomBookings: INITIAL_ROOM_BOOKINGS,
     paymentReports: INITIAL_PAYMENT_REPORTS,
     auditTrail: INITIAL_AUDIT_TRAIL,
-    persons: INITIAL_PERSONS,
-    studentProfiles: INITIAL_STUDENT_PROFILES,
-    consents: INITIAL_CONSENTS,
   });
 }
 

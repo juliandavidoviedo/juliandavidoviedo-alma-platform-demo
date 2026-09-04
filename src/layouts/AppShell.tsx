@@ -1,18 +1,25 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Brand } from '../components/Brand';
 import { DemoBadge } from '../components/DemoBadge';
 import { DemoDisclaimer } from '../components/DemoDisclaimer';
+import { RegistrationDisclaimer } from '../components/RegistrationDisclaimer';
 import { RoleSwitcher } from '../components/RoleSwitcher';
+
+/** Routes where real data is captured — the blanket "es una demo" footer would be actively misleading here. */
+const REAL_DATA_ROUTES = ['/registro-estudiante', '/privacidad'];
 
 const PUBLIC_LINKS = [
   { to: '/', label: 'Inicio', end: true },
   { to: '/clases', label: 'Clases', end: false },
   { to: '/blog', label: 'Blog', end: false },
   { to: '/eventos', label: 'Eventos', end: false },
-  { to: '/inscripcion', label: 'Inscripción', end: false },
+  { to: '/registro-estudiante', label: 'Registro', end: false },
 ] as const;
 
 export function AppShell() {
+  const { pathname } = useLocation();
+  const isRealDataRoute = REAL_DATA_ROUTES.includes(pathname);
+
   return (
     <div className="flex min-h-dvh flex-col bg-alma-bg">
       <header className="border-b border-alma-border">
@@ -51,7 +58,7 @@ export function AppShell() {
       </main>
 
       <footer className="border-t border-alma-border">
-        <DemoDisclaimer />
+        {isRealDataRoute ? <RegistrationDisclaimer /> : <DemoDisclaimer />}
       </footer>
     </div>
   );

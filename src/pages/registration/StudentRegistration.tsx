@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AlertTriangle, ShieldCheck, UserPlus } from 'lucide-react';
 import {
   api,
@@ -96,9 +97,15 @@ export function StudentRegistration() {
   async function checkDuplicate() {
     if (!documentNumber.trim()) return;
     setCheckingDuplicate(true);
-    const result = await api.registration.lookup(documentNumber.trim());
-    setDuplicateWarning(result.found);
-    setCheckingDuplicate(false);
+    try {
+      const result = await api.registration.lookup(documentNumber.trim());
+      setDuplicateWarning(result.found);
+    } catch {
+      // Non-critical — the submit itself still does the real duplicate check server-side.
+      setDuplicateWarning(false);
+    } finally {
+      setCheckingDuplicate(false);
+    }
   }
 
   const requiresGuardian = isMinor === true;
@@ -122,30 +129,41 @@ export function StudentRegistration() {
     if (!canSubmit || isMinor === null) return;
     setSubmitting(true);
     setFeedback(null);
-    const result = await api.registration.submit({
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      documentType,
-      documentNumber: documentNumber.trim(),
-      birthDate,
-      phone: phone.trim(),
-      email: email.trim(),
-      currentProgram,
-      interests: interests.trim() || undefined,
-      emergencyContactName: emergencyContactName.trim(),
-      emergencyContactRelationship,
-      emergencyContactPhone: emergencyContactPhone.trim(),
-      eps: eps.trim(),
-      guardianFullName: requiresGuardian ? guardianFullName.trim() : undefined,
-      guardianDocumentType: requiresGuardian ? guardianDocumentType : undefined,
-      guardianDocumentNumber: requiresGuardian ? guardianDocumentNumber.trim() : undefined,
-      guardianPhone: requiresGuardian ? guardianPhone.trim() : undefined,
-      guardianEmail: requiresGuardian ? guardianEmail.trim() : undefined,
-      guardianRelationship: requiresGuardian ? guardianRelationship : undefined,
-      consents,
-    });
-    setFeedback({ message: result.message, duplicate: result.duplicate });
-    setSubmitting(false);
+    try {
+      const result = await api.registration.submit({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        documentType,
+        documentNumber: documentNumber.trim(),
+        birthDate,
+        phone: phone.trim(),
+        email: email.trim(),
+        currentProgram,
+        interests: interests.trim() || undefined,
+        emergencyContactName: emergencyContactName.trim(),
+        emergencyContactRelationship,
+        emergencyContactPhone: emergencyContactPhone.trim(),
+        eps: eps.trim(),
+        guardianFullName: requiresGuardian ? guardianFullName.trim() : undefined,
+        guardianDocumentType: requiresGuardian ? guardianDocumentType : undefined,
+        guardianDocumentNumber: requiresGuardian ? guardianDocumentNumber.trim() : undefined,
+        guardianPhone: requiresGuardian ? guardianPhone.trim() : undefined,
+        guardianEmail: requiresGuardian ? guardianEmail.trim() : undefined,
+        guardianRelationship: requiresGuardian ? guardianRelationship : undefined,
+        consents,
+      });
+      setFeedback({ message: result.message, duplicate: result.duplicate });
+    } catch (err) {
+      setFeedback({
+        message:
+          err instanceof Error
+            ? err.message.replace(/^[A-Z_]+: /, '')
+            : 'No se pudo guardar tu registro. Revisa tu conexión e intenta de nuevo.',
+        duplicate: false,
+      });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -423,14 +441,14 @@ export function StudentRegistration() {
             </label>
             <p className="text-xs text-alma-text-muted">
               Texto legal sujeto a validación. Versión de política: {REGISTRATION_POLICY_VERSION}. Ver{' '}
-              <a href="#" className="underline decoration-dotted">
+              <Link to="/privacidad#aviso" className="underline decoration-dotted">
                 Aviso de privacidad
-              </a>{' '}
+              </Link>{' '}
               y{' '}
-              <a href="#" className="underline decoration-dotted">
+              <Link to="/privacidad#politica" className="underline decoration-dotted">
                 Política de tratamiento de datos
-              </a>{' '}
-              (pendientes de publicación final).
+              </Link>
+              .
             </p>
           </div>
 
